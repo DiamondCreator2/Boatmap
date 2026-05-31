@@ -1,0 +1,733 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Satellite Boat Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <style>
+        body, html {
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            overflow: hidden; background-color: #001f3f;
+            touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+        
+        .leaflet-container { background-color: #001f3f !important; }
+
+        #map {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;
+        }
+
+        #wake-canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            z-index: 5; pointer-events: none;
+        }
+        
+        .leaflet-control-container { display: none !important; }
+
+        #boat-container {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10; pointer-events: none;
+            transition: opacity 0.3s ease, transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Fast Travel Hyper-speed effect */
+        .fast-traveling #boat {
+            filter: drop-shadow(0px 20px 30px rgba(56, 189, 248, 1)) brightness(1.3);
+            transform: scale(1.6);
+        }
+        
+        .fast-travel-glow {
+            transition: opacity 0.3s;
+            animation: pulse-glow 0.5s infinite alternate;
+        }
+        
+        @keyframes pulse-glow {
+            from { r: 12; opacity: 0.7; }
+            to { r: 25; opacity: 1; }
+        }
+
+        #boat {
+            width: 30px; height: 70px;
+            transform-origin: center center;
+            transition: filter 0.3s, transform 0.3s;
+            filter: drop-shadow(0px 8px 12px rgba(0,0,0,0.7));
+        }
+
+        @keyframes crash {
+            0% { transform: translate(0, 0) rotate(var(--boat-heading)); }
+            25% { transform: translate(-3px, 2px) rotate(calc(var(--boat-heading) - 2deg)); }
+            50% { transform: translate(3px, -2px) rotate(calc(var(--boat-heading) + 2deg)); }
+            75% { transform: translate(-2px, -3px) rotate(calc(var(--boat-heading) - 1deg)); }
+            100% { transform: translate(0, 0) rotate(var(--boat-heading)); }
+        }
+
+        .crash-active svg path { fill: #ef4444 !important; transition: fill 0.1s; }
+        .crash-shake { animation: crash 0.3s ease-in-out; }
+
+        .ui-layer { position: absolute; z-index: 20; pointer-events: none; }
+
+        /* Expandable Minimap styles */
+        #minimap-wrapper {
+            position: absolute; top: 1rem; right: 1rem;
+            width: 140px; height: 140px; border-radius: 50%;
+            border: 3px solid rgba(255,255,255,0.5);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+            overflow: hidden; z-index: 25; pointer-events: auto;
+            background: #001f3f;
+            transition: all 0.4s cubic-bezier(0.2, 0, 0, 1);
+        }
+        
+        #minimap-wrapper.expanded {
+            top: 5vh; right: 5vw;
+            width: 90vw; height: 90vh;
+            border-radius: 16px;
+            z-index: 10000; 
+        }
+
+        #minimap { width: 100%; height: 100%; z-index: 1; }
+
+        @media (min-width: 768px) {
+            #minimap-wrapper:not(.expanded) { width: 180px; height: 180px; top: 1.5rem; right: 1.5rem; }
+            #minimap-wrapper.expanded { width: 80vw; height: 80vh; top: 10vh; right: 10vw; }
+        }
+
+        #joystick-zone {
+            position: absolute; top: 0; left: 0; width: 50%; height: 100%; 
+            z-index: 9998; touch-action: none; cursor: grab;
+        }
+        #joystick-zone:active { cursor: grabbing; }
+
+        .portrait-text { display: none; }
+        @media (orientation: portrait) {
+            #joystick-zone { top: 50%; left: 0; width: 100%; height: 50%; }
+            .landscape-text { display: none; }
+            .portrait-text { display: inline; }
+        }
+        
+        #joystick-base {
+            position: absolute; width: 140px; height: 140px;
+            background: rgba(0, 0, 0, 0.2); border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%; transform: translate(-50%, -50%);
+            display: none; backdrop-filter: blur(4px); box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            z-index: 9999; pointer-events: none;
+        }
+        #joystick-knob {
+            position: absolute; top: 50%; left: 50%; width: 60px; height: 60px;
+            background: rgba(255, 255, 255, 0.9); border-radius: 50%;
+            transform: translate(-50%, -50%); box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+        }
+
+        .nav-route { stroke-dasharray: 8 12; animation: dash 20s linear infinite; }
+        @keyframes dash { to { stroke-dashoffset: -1000; } }
+
+        .leaflet-control-container .leaflet-control-zoom { display: none; }
+        #minimap-wrapper.expanded .leaflet-control-container .leaflet-control-zoom { display: block; border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.4); margin-top: 60px;}
+    </style>
+</head>
+<body class="font-sans text-white">
+
+    <div id="map"></div>
+    <canvas id="wake-canvas"></canvas>
+
+    <!-- Expandable Minimap -->
+    <div id="minimap-wrapper" title="Click to open global map">
+        <div id="minimap"></div>
+        <div id="minimap-expand-overlay" class="absolute inset-0 z-[1000] flex items-center justify-center bg-black/10 hover:bg-black/40 transition-colors text-white opacity-0 hover:opacity-100 cursor-pointer">
+            <i class="ph-bold ph-arrows-out text-4xl drop-shadow-md"></i>
+        </div>
+        <button id="minimap-close-btn" class="absolute top-4 right-4 z-[2000] bg-black/70 backdrop-blur-md text-white w-12 h-12 rounded-full hover:bg-red-500 transition-colors hidden items-center justify-center border border-white/20 shadow-lg cursor-pointer">
+            <i class="ph-bold ph-x text-2xl"></i>
+        </button>
+
+        <!-- AUTOPILOT BUTTON -->
+        <button id="minimap-autopilot-btn" class="absolute bottom-6 left-1/2 -translate-x-1/2 w-[85%] md:w-auto z-[2000] bg-yellow-400 text-black px-6 py-3 rounded-full font-bold shadow-xl hidden justify-center items-center gap-2 hover:bg-yellow-300 transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+        </button>
+    </div>
+
+    <div id="joystick-zone"></div>
+    <div id="joystick-base">
+        <div id="joystick-knob"></div>
+    </div>
+
+    <!-- The Boat -->
+    <div id="boat-container">
+        <div id="boat">
+            <svg viewBox="0 0 100 200" width="100%" height="100%">
+                <path d="M10,180 L10,60 C10,20 50,0 50,0 C50,0 90,20 90,60 L90,180 C90,195 80,200 50,200 C20,200 10,195 10,180 Z" fill="#f8fafc"/>
+                <path d="M15,175 L15,62 C15,25 50,5 50,5 C50,5 85,25 85,62 L85,175 C85,188 75,193 50,193 C25,193 15,188 15,175 Z" fill="#e2e8f0"/>
+                <rect x="25" y="80" width="50" height="35" rx="10" fill="#0f172a"/>
+                <path d="M30,85 L70,85 L65,110 L35,110 Z" fill="#38bdf8" opacity="0.8"/>
+                <rect x="40" y="195" width="20" height="15" rx="3" fill="#334155"/>
+                <!-- Engine thrust glow for hyper-speed -->
+                <circle cx="50" cy="210" r="15" fill="#38bdf8" opacity="0" class="fast-travel-glow" filter="blur(5px)"/>
+                <circle cx="50" cy="210" r="8" fill="#ffffff" opacity="0" class="fast-travel-glow" filter="blur(2px)"/>
+            </svg>
+        </div>
+    </div>
+
+    <!-- Info Panel -->
+    <div class="ui-layer top-4 left-4 flex flex-col gap-3 pointer-events-none">
+        <div class="pointer-events-auto bg-black/60 backdrop-blur-md rounded-2xl p-4 border border-white/10 shadow-xl max-w-[200px] md:max-w-xs transition-colors" id="info-panel">
+            <h1 class="text-lg md:text-xl font-bold flex items-center gap-2 mb-1">
+                <i class="ph-fill ph-compass"></i> Explorer
+            </h1>
+            <p id="location-name" class="text-xs md:text-sm text-blue-200 truncate font-semibold">Teleporting...</p>
+            <div class="mt-2 flex items-center gap-4">
+                <div>
+                    <div class="text-2xl font-mono font-bold text-white"><span id="speed-display">0</span> <span class="text-sm text-gray-400 font-sans">kts</span></div>
+                </div>
+            </div>
+            <div id="waypoint-info" class="mt-2 text-xs font-semibold text-yellow-400 hidden flex items-center gap-1">
+                <i class="ph-bold ph-map-pin"></i> <span id="waypoint-dist">0</span>mi to dest
+            </div>
+        </div>
+
+        <button id="random-btn" class="pointer-events-auto bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-full shadow-lg transition-transform hover:scale-105 flex items-center justify-center w-12 h-12">
+            <i class="ph-bold ph-shuffle text-xl"></i>
+        </button>
+    </div>
+    
+    <!-- Instructions -->
+    <div class="ui-layer bottom-8 left-1/2 -translate-x-1/2 w-full max-w-md text-center pointer-events-none px-4">
+        <div class="bg-black/50 backdrop-blur-md px-6 py-3 rounded-full text-xs md:text-sm font-medium border border-white/10 shadow-lg inline-block">
+            <span class="hidden md:inline">Use <strong class="text-blue-300">W A S D</strong>. Click <strong class="text-yellow-400">Minimap</strong> to expand & Autopilot!</span>
+            <span class="md:hidden">Drag <strong class="text-blue-300"><span class="landscape-text">Left Side</span><span class="portrait-text">Bottom Half</span></strong>. Tap <strong class="text-yellow-400">Minimap</strong>!</span>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        const destinations = [
+            { name: "Bora Bora, French Polynesia", lat: -16.495, lng: -151.736 },
+            { name: "Venice Lagoon, Italy", lat: 45.4312, lng: 12.3385 },
+            { name: "Sydney Harbour, AUS", lat: -33.856, lng: 151.215 },
+            { name: "Malé Atoll, Maldives", lat: 4.175, lng: 73.509 },
+            { name: "Ha Long Bay, Vietnam", lat: 20.85, lng: 107.13 },
+            { name: "Loch Ness, Scotland", lat: 57.22, lng: -4.5 },
+            { name: "The Palm Jumeirah, Dubai", lat: 25.122, lng: 55.132 },
+            { name: "Miami Beach, Florida", lat: 25.790, lng: -80.125 }
+        ];
+
+        // --- MAP SETUP (zoomSnap: 0 prevents white screens during animations) ---
+        const FIXED_ZOOM = 18;
+        const MINIMAP_ZOOM = 13;
+        const FAST_TRAVEL_ZOOM = 8; // Camera floats up to the clouds
+
+        let currentMapZoom = FIXED_ZOOM;
+
+        const map = L.map('map', {
+            zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
+            touchZoom: false, boxZoom: false, keyboard: false, minZoom: 4, maxZoom: FIXED_ZOOM, zoomSnap: 0
+        });
+
+        const minimap = L.map('minimap', {
+            zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
+            touchZoom: false, boxZoom: false, keyboard: false, attributionControl: false,
+            minZoom: 2, maxZoom: 18, zoomSnap: 0
+        });
+
+        const minimapZoomControl = L.control.zoom({ position: 'topright' });
+        const satelliteUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+        
+        L.tileLayer(satelliteUrl, { maxZoom: FIXED_ZOOM, maxNativeZoom: 12, zIndex: 1 }).addTo(map);
+        L.tileLayer(satelliteUrl, { maxZoom: FIXED_ZOOM, maxNativeZoom: 18, keepBuffer: 2, zIndex: 2 }).addTo(map);
+
+        L.tileLayer(satelliteUrl, { maxZoom: 18, maxNativeZoom: 10, zIndex: 1 }).addTo(minimap);
+        L.tileLayer(satelliteUrl, { maxZoom: 18, maxNativeZoom: 14, zIndex: 2 }).addTo(minimap);
+
+        setTimeout(() => minimap.invalidateSize(), 500);
+
+        const boatMiniIcon = L.divIcon({
+            html: `<div style="background-color: #38bdf8; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 10px rgba(56,189,248,1);"></div>`,
+            className: '', iconSize: [12, 12], iconAnchor: [6, 6]
+        });
+        const boatMiniMarker = L.marker([0,0], { icon: boatMiniIcon, zIndexOffset: 1000 }).addTo(minimap);
+
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; const φ1 = lat1 * Math.PI/180; const φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180; const Δλ = (lon2-lon1) * Math.PI/180;
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        // --- EXPANDABLE MINIMAP ---
+        let isMinimapExpanded = false;
+        const minimapWrapper = document.getElementById('minimap-wrapper');
+        const minimapOverlay = document.getElementById('minimap-expand-overlay');
+        const minimapCloseBtn = document.getElementById('minimap-close-btn');
+        const autopilotBtn = document.getElementById('minimap-autopilot-btn');
+
+        minimapOverlay.addEventListener('click', (e) => {
+            e.stopPropagation();
+            isMinimapExpanded = true;
+            minimapWrapper.classList.add('expanded');
+            minimapOverlay.style.display = 'none';
+            minimapCloseBtn.style.display = 'flex';
+            
+            minimap.dragging.enable(); minimap.touchZoom.enable(); minimap.scrollWheelZoom.enable(); minimap.doubleClickZoom.enable();
+            minimapZoomControl.addTo(minimap);
+
+            if (waypoint) autopilotBtn.style.display = 'flex';
+            setTimeout(() => minimap.invalidateSize(), 400); 
+        });
+
+        function closeMinimap() {
+            isMinimapExpanded = false;
+            minimapWrapper.classList.remove('expanded');
+            minimapOverlay.style.display = 'flex';
+            minimapCloseBtn.style.display = 'none';
+            autopilotBtn.style.display = 'none';
+            
+            minimap.dragging.disable(); minimap.touchZoom.disable(); minimap.scrollWheelZoom.disable(); minimap.doubleClickZoom.disable();
+            minimapZoomControl.remove();
+
+            minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
+            setTimeout(() => minimap.invalidateSize(), 400);
+        }
+
+        minimapCloseBtn.addEventListener('click', (e) => { e.stopPropagation(); closeMinimap(); });
+
+        // --- NAVIGATION & AUTOPILOT UI ---
+        let waypoint = null;
+        let navLineMain = L.polyline([], { color: '#facc15', weight: 4, className: 'nav-route', opacity: 0.8 }).addTo(map);
+        let navLineMini = L.polyline([], { color: '#facc15', weight: 3, className: 'nav-route', opacity: 0.8 }).addTo(minimap);
+        let waypointMarker = null;
+        let waypointMarkerMini = null;
+        const waypointInfo = document.getElementById('waypoint-info');
+        const waypointDist = document.getElementById('waypoint-dist');
+
+        minimap.on('click', (e) => {
+            if (!isMinimapExpanded) return;
+
+            waypoint = e.latlng;
+            if (waypointMarker) { map.removeLayer(waypointMarker); minimap.removeLayer(waypointMarkerMini); }
+            
+            const pinIcon = L.divIcon({
+                html: `<div style="background-color: #facc15; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.8);"></div>`,
+                className: '', iconSize: [14, 14], iconAnchor: [7, 7]
+            });
+            
+            waypointMarker = L.marker(waypoint, { icon: pinIcon }).addTo(map);
+            waypointMarkerMini = L.marker(waypoint, { icon: pinIcon }).addTo(minimap);
+            waypointInfo.classList.remove('hidden');
+            
+            let distMeters = getDistance(currentLat, currentLng, waypoint.lat, waypoint.lng);
+            let distMiles = distMeters / 1609.34;
+            
+            // 100 Mile Requirement!
+            if (distMiles < 100) {
+                autopilotBtn.innerHTML = `<i class="ph-bold ph-warning text-xl"></i> <span class="text-sm">TOO CLOSE (${Math.round(distMiles)}/100 MI)</span>`;
+                autopilotBtn.disabled = true;
+            } else {
+                autopilotBtn.innerHTML = `<i class="ph-bold ph-lightning text-xl"></i> <span class="text-sm">ENGAGE HYPER-DRIVE</span>`;
+                autopilotBtn.disabled = false;
+            }
+            autopilotBtn.style.display = 'flex';
+        });
+
+        // --- FAST TRAVEL (CINEMATIC HYPER-DRIVE WITH LIVE SCANNING) ---
+        let isFastTraveling = false;
+
+        autopilotBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!waypoint || isSpawning || isFastTraveling || autopilotBtn.disabled) return;
+            
+            isFastTraveling = true;
+            closeMinimap();
+            wakeHistory = []; 
+            
+            // Activate glow and scale up CSS
+            document.getElementById('boat-container').classList.add('fast-traveling');
+            const glows = document.querySelectorAll('.fast-travel-glow');
+            glows.forEach(g => g.setAttribute('opacity', '1'));
+        });
+
+        // --- WAKE CANVAS ---
+        const wakeCanvas = document.getElementById('wake-canvas');
+        const ctx = wakeCanvas.getContext('2d');
+        let wakeHistory = []; 
+        
+        function resizeCanvas() { wakeCanvas.width = window.innerWidth; wakeCanvas.height = window.innerHeight; }
+        window.addEventListener('resize', resizeCanvas); resizeCanvas();
+
+        function recordWakePosition(headingRad) {
+            if (isFastTraveling) return; 
+            const cx = window.innerWidth / 2; const cy = window.innerHeight / 2;
+            const sternX = cx - Math.sin(headingRad) * 35; const sternY = cy + Math.cos(headingRad) * 35;
+            const bowLeftX = cx - Math.sin(headingRad - 0.5) * 20; const bowLeftY = cy + Math.cos(headingRad - 0.5) * 20;
+            const bowRightX = cx - Math.sin(headingRad + 0.5) * 20; const bowRightY = cy + Math.cos(headingRad + 0.5) * 20;
+
+            wakeHistory.unshift({
+                stern: map.containerPointToLatLng([sternX, sternY]),
+                bowLeft: map.containerPointToLatLng([bowLeftX, bowLeftY]),
+                bowRight: map.containerPointToLatLng([bowRightX, bowRightY]),
+                life: 1.0
+            });
+            if (wakeHistory.length > 50) wakeHistory.pop();
+        }
+
+        // --- BOAT STATE & COLLISION SYSTEM (WITH FAILSAFE) ---
+        let currentLat = 0; let currentLng = 0;
+        let isSpawning = false;
+
+        let state = { speed: 0, heading: 0, maxSpeed: 0.000030, acceleration: 0.0000006, friction: 0.985, turnSpeed: 2.2 };
+        const input = { up: false, down: false, left: false, right: false };
+
+        const tileCache = {};
+        const COLLISION_ZOOM = 15; 
+        function lon2tile(lon, zoom) { return Math.floor((lon+180)/360*Math.pow(2,zoom)); }
+        function lat2tile(lat, zoom) { return Math.floor((1-Math.log(Math.tan(lat*Math.PI/180) + 1/Math.cos(lat*Math.PI/180))/Math.PI)/2 *Math.pow(2,zoom)); }
+        function lon2tilex(lon, zoom) { return (((lon+180)/360*Math.pow(2,zoom)) % 1) * 256; }
+        function lat2tiley(lat, zoom) { return (((1-Math.log(Math.tan(lat*Math.PI/180) + 1/Math.cos(lat*Math.PI/180))/Math.PI)/2 *Math.pow(2,zoom)) % 1) * 256; }
+
+        function checkIsWater(lat, lng) {
+            const x = lon2tile(lng, COLLISION_ZOOM); const y = lat2tile(lat, COLLISION_ZOOM);
+            const tileKey = `${COLLISION_ZOOM}_${x}_${y}`;
+            
+            if (!tileCache[tileKey]) {
+                tileCache[tileKey] = { loaded: false, data: null };
+                const img = new Image(); img.crossOrigin = "Anonymous"; 
+                img.onload = () => {
+                    try { 
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 256; canvas.height = 256;
+                        const ctxMap = canvas.getContext('2d');
+                        if (ctxMap) {
+                            ctxMap.drawImage(img, 0, 0);
+                            tileCache[tileKey].data = ctxMap.getImageData(0, 0, 256, 256).data; 
+                        }
+                    } catch(e) { } 
+                    tileCache[tileKey].loaded = true; // ABSOLUTELY GUARANTEES WE NEVER FREEZE
+                };
+                img.onerror = () => { tileCache[tileKey].loaded = true; }; 
+                img.src = `https://a.basemaps.cartocdn.com/rastertiles/voyager_nolabels/${COLLISION_ZOOM}/${x}/${y}.png`;
+                return null; 
+            }
+
+            if (tileCache[tileKey].loaded) {
+                // FAILSAFE: If privacy settings blocked pixel reading, assume it's water so the game doesn't crash!
+                if (!tileCache[tileKey].data) return true; 
+
+                const px = Math.floor(lon2tilex(lng, COLLISION_ZOOM));
+                const py = Math.floor(lat2tiley(lat, COLLISION_ZOOM));
+                const index = (py * 256 + px) * 4;
+                
+                if (index < 0 || index >= tileCache[tileKey].data.length) return true; 
+
+                const r = tileCache[tileKey].data[index]; const b = tileCache[tileKey].data[index+2]; const a = tileCache[tileKey].data[index+3];
+                if (a === 0) return true; 
+                return (b > r + 15);
+            }
+            return null; 
+        }
+
+        // --- JOYSTICK INPUT ---
+        let joyActive = false; let joyOriginX = 0; let joyOriginY = 0; let joyX = 0; let joyY = 0; 
+        const joyZone = document.getElementById('joystick-zone');
+        const joyBase = document.getElementById('joystick-base');
+        const joyKnob = document.getElementById('joystick-knob');
+
+        function getClientXY(e) { return (e.touches && e.touches.length > 0) ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY }; }
+        function startJoystick(e) {
+            if (isSpawning || isMinimapExpanded || isFastTraveling) return; 
+            e.preventDefault(); joyActive = true;
+            const pos = getClientXY(e); joyOriginX = pos.x; joyOriginY = pos.y;
+            joyBase.style.display = 'block'; joyBase.style.left = joyOriginX + 'px'; joyBase.style.top = joyOriginY + 'px';
+            updateJoystick(e);
+        }
+        function updateJoystick(e) {
+            if (!joyActive) return; e.preventDefault();
+            const pos = getClientXY(e); const deltaX = pos.x - joyOriginX; const deltaY = pos.y - joyOriginY;
+            const maxRadius = 70; const clampedDist = Math.min(Math.sqrt(deltaX*deltaX + deltaY*deltaY), maxRadius);
+            const angle = Math.atan2(deltaY, deltaX);
+            const knobX = Math.cos(angle) * clampedDist; const knobY = Math.sin(angle) * clampedDist;
+            joyKnob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+            joyX = knobX / maxRadius; joyY = knobY / maxRadius; 
+        }
+        function stopJoystick() { joyActive = false; joyBase.style.display = 'none'; joyKnob.style.transform = `translate(-50%, -50%)`; joyX = 0; joyY = 0; }
+
+        joyZone.addEventListener('mousedown', startJoystick); joyZone.addEventListener('touchstart', startJoystick, { passive: false });
+        window.addEventListener('mousemove', updateJoystick); window.addEventListener('touchmove', updateJoystick, { passive: false });
+        window.addEventListener('mouseup', stopJoystick); window.addEventListener('touchend', stopJoystick);
+        window.addEventListener('keydown', (e) => {
+            if (isMinimapExpanded || isFastTraveling) return;
+            if (e.key === 'w' || e.key === 'ArrowUp') input.up = true;
+            if (e.key === 's' || e.key === 'ArrowDown') input.down = true;
+            if (e.key === 'a' || e.key === 'ArrowLeft') input.left = true;
+            if (e.key === 'd' || e.key === 'ArrowRight') input.right = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'w' || e.key === 'ArrowUp') input.up = false;
+            if (e.key === 's' || e.key === 'ArrowDown') input.down = false;
+            if (e.key === 'a' || e.key === 'ArrowLeft') input.left = false;
+            if (e.key === 'd' || e.key === 'ArrowRight') input.right = false;
+        });
+
+        // --- SPAWN LOGIC ---
+        const boatContainer = document.getElementById('boat-container');
+        const locName = document.getElementById('location-name');
+        const infoPanel = document.getElementById('info-panel');
+        const boatEl = document.getElementById('boat');
+
+        async function teleportToRandom() {
+            if (isSpawning || isFastTraveling) return; isSpawning = true;
+            if (isMinimapExpanded) closeMinimap(); 
+            
+            wakeHistory = []; waypoint = null; waypointInfo.classList.add('hidden');
+            navLineMain.setLatLngs([]); navLineMini.setLatLngs([]);
+            if (waypointMarker) { map.removeLayer(waypointMarker); minimap.removeLayer(waypointMarkerMini); waypointMarker = null; }
+
+            boatContainer.style.opacity = '0'; infoPanel.classList.add('bg-blue-900/60');
+            locName.textContent = "Scanning for water..."; locName.classList.add('animate-pulse', 'text-blue-300');
+            
+            const dest = destinations[Math.floor(Math.random() * destinations.length)];
+            let searchRadius = 0, searchAngle = 0, testLat = dest.lat, testLng = dest.lng;
+            
+            map.setView([testLat, testLng], FIXED_ZOOM, { animate: false });
+            
+            while (isSpawning) {
+                let waterCheck = checkIsWater(testLat, testLng);
+                if (waterCheck === null) { await new Promise(r => setTimeout(r, 50)); continue; }
+                
+                if (waterCheck === true) {
+                    currentLat = testLat; currentLng = testLng; state.speed = 0; state.heading = Math.random() * 360;
+                    joyX = 0; joyY = 0; stopJoystick(); input.up = false; input.down = false; input.left = false; input.right = false;
+                    
+                    currentMapZoom = FIXED_ZOOM;
+                    map.setView([currentLat, currentLng], currentMapZoom, { animate: false });
+                    minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
+                    
+                    locName.textContent = dest.name; locName.classList.remove('animate-pulse', 'text-blue-300');
+                    infoPanel.classList.remove('bg-blue-900/60'); boatContainer.style.opacity = '1'; isSpawning = false; break;
+                }
+                searchAngle += Math.PI / 4; 
+                if (searchAngle >= Math.PI * 2) { searchAngle -= Math.PI * 2; searchRadius += 0.0003; }
+                if (searchRadius > 0.05) { 
+                    currentLat = dest.lat; currentLng = dest.lng; isSpawning = false; boatContainer.style.opacity = '1';
+                    locName.textContent = dest.name + " (Dry Drop)"; break;
+                }
+                await new Promise(r => setTimeout(r, 10));
+            }
+        }
+        document.getElementById('random-btn').addEventListener('click', teleportToRandom);
+
+        // --- MAIN GAME LOOP ---
+        const speedDisplay = document.getElementById('speed-display');
+        let lastCrashTime = 0;
+        let frameCounter = 0;
+
+        function update() {
+            requestAnimationFrame(update);
+            frameCounter++;
+            
+            if (isSpawning) { ctx.clearRect(0, 0, wakeCanvas.width, wakeCanvas.height); return; }
+
+            // === CINEMATIC LIVE HYPER-DRIVE ===
+            if (isFastTraveling) {
+                // 1. Zoom Camera Out smoothly
+                if (currentMapZoom > FAST_TRAVEL_ZOOM) {
+                    currentMapZoom -= 0.1;
+                    if (currentMapZoom < FAST_TRAVEL_ZOOM) currentMapZoom = FAST_TRAVEL_ZOOM;
+                }
+
+                // 2. Steer towards target
+                let dx = waypoint.lng - currentLng;
+                let dy = waypoint.lat - currentLat;
+                let distToTarget = Math.sqrt(dx*dx + dy*dy);
+                
+                // If we reach the target, stop!
+                if (distToTarget < 0.05) {
+                    endFastTravel();
+                    return;
+                }
+
+                state.heading = Math.atan2(dx, dy) * (180 / Math.PI);
+
+                // 3. Accelerate to Hyper-Speed (Slow down if getting close)
+                let targetHyperSpeed = distToTarget < 0.2 ? 0.001 : 0.008; 
+                
+                if (state.speed < targetHyperSpeed) state.speed += 0.0002;
+                if (state.speed > targetHyperSpeed) state.speed -= 0.0005;
+
+                let headingRad = state.heading * (Math.PI / 180);
+                let latAdjustment = Math.max(0.1, Math.cos(currentLat * (Math.PI / 180)));
+                let nextLat = currentLat + state.speed * Math.cos(headingRad);
+                let nextLng = currentLng + (state.speed * Math.sin(headingRad)) / latAdjustment;
+
+                // 4. LIVE SCANNING! Check if the path ahead is loaded and safe
+                let waterCheck = checkIsWater(nextLat, nextLng);
+
+                if (waterCheck === null) {
+                    // TILE NOT LOADED YET. 
+                    // Pause the boat's physical movement this frame to let the browser fetch it.
+                    // This creates a cool "Scanning" hitch in the animation if you outrun your internet speed!
+                    speedDisplay.innerText = "SCANNING...";
+                    ctx.clearRect(0, 0, wakeCanvas.width, wakeCanvas.height);
+                } else if (waterCheck === false) {
+                    // HIT LAND DURING FLIGHT. Stop instantly.
+                    endFastTravel(true);
+                } else {
+                    // CLEAR. Blast forward!
+                    currentLat = nextLat; currentLng = nextLng;
+                    
+                    // Display cool Mach speeds
+                    speedDisplay.innerText = "MACH " + Math.round((state.speed / 0.008) * 25);
+                    
+                    map.setView([currentLat, currentLng], currentMapZoom, { animate: false });
+                    boatMiniMarker.setLatLng([currentLat, currentLng]);
+                    if (frameCounter % 5 === 0) minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
+                    
+                    boatEl.style.setProperty('--boat-heading', `${state.heading}deg`);
+                    boatEl.style.transform = `rotate(${state.heading}deg)`;
+                    ctx.clearRect(0, 0, wakeCanvas.width, wakeCanvas.height);
+                }
+                return;
+            }
+
+            // --- RECOVERY ZOOM IN (If coming out of fast travel) ---
+            if (currentMapZoom < FIXED_ZOOM) {
+                currentMapZoom += 0.2;
+                if (currentMapZoom > FIXED_ZOOM) currentMapZoom = FIXED_ZOOM;
+            }
+
+            // === NORMAL PHYSICS LOGIC ===
+            let throttle = 0; let steering = 0;
+            if (joyActive && !isMinimapExpanded) {
+                let distance = Math.min(1, Math.sqrt(joyX*joyX + joyY*joyY));
+                if (joyY > 0.3) { throttle = distance; } else { throttle = -distance; } 
+                steering = joyX; if (Math.abs(steering) < 0.15) steering = 0; 
+            } else if (!isMinimapExpanded) {
+                if (input.up) throttle = -1; if (input.down) throttle = 1;
+                if (input.left) steering = -1; if (input.right) steering = 1;
+            }
+
+            if (throttle < 0) state.speed += state.acceleration * Math.abs(throttle); 
+            if (throttle > 0) state.speed -= state.acceleration * Math.abs(throttle); 
+            state.speed *= state.friction;
+            if (state.speed > state.maxSpeed) state.speed = state.maxSpeed;
+            if (state.speed < -state.maxSpeed/2) state.speed = -state.maxSpeed/2;
+
+            let turnEffectiveness = Math.min(1, Math.abs(state.speed / 0.00001));
+            if (Math.abs(state.speed) > 0.000001) {
+                let turnDir = state.speed > 0 ? 1 : -1; 
+                state.heading += (steering * state.turnSpeed * turnEffectiveness) * turnDir;
+            }
+
+            let headingRad = state.heading * (Math.PI / 180);
+            let latAdjustment = Math.max(0.1, Math.cos(currentLat * (Math.PI / 180)));
+            let nextLat = currentLat + state.speed * Math.cos(headingRad);
+            let nextLng = currentLng + (state.speed * Math.sin(headingRad)) / latAdjustment;
+
+            let waterCheck = checkIsWater(nextLat, nextLng);
+            if (waterCheck === true || waterCheck === null) {
+                currentLat = nextLat; currentLng = nextLng;
+            } else {
+                state.speed *= -0.3; 
+                const now = Date.now();
+                if (now - lastCrashTime > 500) {
+                    lastCrashTime = now;
+                    boatEl.classList.add('crash-shake', 'crash-active');
+                    setTimeout(() => boatEl.classList.remove('crash-shake', 'crash-active'), 300);
+                }
+            }
+
+            map.setView([currentLat, currentLng], currentMapZoom, { animate: false });
+            boatMiniMarker.setLatLng([currentLat, currentLng]);
+            
+            if (!isMinimapExpanded && frameCounter % 5 === 0) {
+                minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
+            }
+            
+            boatEl.style.setProperty('--boat-heading', `${state.heading}deg`);
+            boatEl.style.transform = `rotate(${state.heading}deg)`;
+
+            if (waypoint) {
+                let dist = getDistance(currentLat, currentLng, waypoint.lat, waypoint.lng);
+                let distMiles = dist / 1609.34;
+                if (dist < 10) { 
+                    waypoint = null; waypointInfo.classList.add('hidden');
+                    navLineMain.setLatLngs([]); navLineMini.setLatLngs([]);
+                    if (waypointMarker) { map.removeLayer(waypointMarker); minimap.removeLayer(waypointMarkerMini); waypointMarker = null; }
+                } else {
+                    navLineMain.setLatLngs([[currentLat, currentLng], waypoint]);
+                    if (isMinimapExpanded || frameCounter % 5 === 0) {
+                        navLineMini.setLatLngs([[currentLat, currentLng], waypoint]);
+                    }
+                    waypointDist.innerText = distMiles > 10 ? Math.round(distMiles) : distMiles.toFixed(1);
+                }
+            }
+
+            // --- DRAW VECTOR WAKE ---
+            ctx.clearRect(0, 0, wakeCanvas.width, wakeCanvas.height);
+            
+            if (Math.abs(state.speed / state.maxSpeed) > 0.1 && state.speed > 0) {
+                recordWakePosition(headingRad);
+            }
+
+            if (wakeHistory.length > 1) {
+                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+                for (let i = 0; i < wakeHistory.length - 1; i++) {
+                    let curr = wakeHistory[i];
+                    let next = wakeHistory[i+1];
+                    curr.life -= 0.02; 
+
+                    if (curr.life <= 0) continue;
+
+                    let sc1_bl = map.latLngToContainerPoint(curr.bowLeft); let sc2_bl = map.latLngToContainerPoint(next.bowLeft);
+                    let sc1_br = map.latLngToContainerPoint(curr.bowRight); let sc2_br = map.latLngToContainerPoint(next.bowRight);
+                    let sc1_st = map.latLngToContainerPoint(curr.stern); let sc2_st = map.latLngToContainerPoint(next.stern);
+
+                    ctx.lineWidth = 2 + (1 - curr.life) * 6; 
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${curr.life * 0.4})`;
+                    
+                    ctx.beginPath(); ctx.moveTo(sc1_bl.x, sc1_bl.y); ctx.lineTo(sc2_bl.x, sc2_bl.y); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(sc1_br.x, sc1_br.y); ctx.lineTo(sc2_br.x, sc2_br.y); ctx.stroke();
+
+                    ctx.lineWidth = 4 + (1 - curr.life) * 10;
+                    ctx.strokeStyle = `rgba(200, 240, 255, ${curr.life * 0.6})`;
+                    ctx.beginPath(); ctx.moveTo(sc1_st.x, sc1_st.y); ctx.lineTo(sc2_st.x, sc2_st.y); ctx.stroke();
+                }
+            }
+
+            speedDisplay.innerText = Math.round(Math.abs(state.speed) * 1250000); 
+        }
+
+        // Helper to cleanly exit Hyper-Drive
+        function endFastTravel(crashed = false) {
+            isFastTraveling = false;
+            document.getElementById('boat-container').classList.remove('fast-traveling');
+            const glows = document.querySelectorAll('.fast-travel-glow');
+            glows.forEach(g => g.setAttribute('opacity', '0'));
+            
+            if (crashed) {
+                state.speed = -0.00001; // Tiny bounce back
+                const now = Date.now();
+                if (now - lastCrashTime > 500) {
+                    lastCrashTime = now;
+                    boatEl.classList.add('crash-shake', 'crash-active');
+                    setTimeout(() => boatEl.classList.remove('crash-shake', 'crash-active'), 300);
+                }
+            } else {
+                state.speed = 0;
+                waypoint = null; waypointInfo.classList.add('hidden');
+                navLineMain.setLatLngs([]); navLineMini.setLatLngs([]);
+                if (waypointMarker) { map.removeLayer(waypointMarker); minimap.removeLayer(waypointMarkerMini); waypointMarker = null; }
+            }
+        }
+
+        teleportToRandom();
+        requestAnimationFrame(update);
+    </script>
+</body>
+</html>
+
+
+```
