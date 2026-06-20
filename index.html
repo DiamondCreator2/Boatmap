@@ -12,11 +12,11 @@
     <style>
         body, html {
             margin: 0; padding: 0; height: 100%; width: 100%;
-            overflow: hidden; background-color: #001f3f;
+            overflow: hidden; background-color: #00172d;
             touch-action: none; user-select: none; -webkit-user-select: none;
         }
         
-        .leaflet-container { background-color: #001f3f !important; }
+        .leaflet-container { background-color: #00172d !important; }
 
         #map {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;
@@ -36,9 +36,8 @@
             transition: opacity 0.3s ease, transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* Fast Travel Hyper-speed effect */
         .fast-traveling #boat {
-            filter: drop-shadow(0px 20px 30px rgba(56, 189, 248, 1)) brightness(1.3);
+            filter: drop-shadow(0px 20px 30px rgba(56, 189, 248, 1)) brightness(1.4);
             transform: scale(1.6);
         }
         
@@ -70,17 +69,23 @@
         .crash-active svg path { fill: #ef4444 !important; transition: fill 0.1s; }
         .crash-shake { animation: crash 0.3s ease-in-out; }
 
+        @keyframes shake-ui {
+            0%, 100% { transform: translateX(-50%) scale(1.05); }
+            25% { transform: translateX(calc(-50% - 8px)) scale(1.05); }
+            75% { transform: translateX(calc(-50% + 8px)) scale(1.05); }
+        }
+        .animate-shake-ui { animation: shake-ui 0.3s ease-in-out; }
+
         .ui-layer { position: absolute; z-index: 20; pointer-events: none; }
 
-        /* Expandable Minimap styles */
         #minimap-wrapper {
             position: absolute; top: 1rem; right: 1rem;
             width: 140px; height: 140px; border-radius: 50%;
             border: 3px solid rgba(255,255,255,0.5);
             box-shadow: 0 10px 25px rgba(0,0,0,0.6);
             overflow: hidden; z-index: 25; pointer-events: auto;
-            background: #001f3f;
-            transition: all 0.4s cubic-bezier(0.2, 0, 0, 1);
+            background: #00172d;
+            transition: all 0.4s cubic-bezier(0.2, 0, 0, 1), opacity 0.3s ease;
         }
         
         #minimap-wrapper.expanded {
@@ -123,11 +128,46 @@
             transform: translate(-50%, -50%); box-shadow: 0 4px 10px rgba(0,0,0,0.4);
         }
 
-        .nav-route { stroke-dasharray: 8 12; animation: dash 20s linear infinite; }
-        @keyframes dash { to { stroke-dashoffset: -1000; } }
-
         .leaflet-control-container .leaflet-control-zoom { display: none; }
         #minimap-wrapper.expanded .leaflet-control-container .leaflet-control-zoom { display: block; border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.4); margin-top: 60px;}
+
+        /* Port Anchor Markers (Glitch-Free Architecture) */
+        .port-marker-wrapper {
+            background: transparent !important; border: none !important;
+        }
+        .port-marker-inner {
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            background-color: rgba(0, 23, 45, 0.8); border: 2px solid #38bdf8;
+            color: #38bdf8; border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.8);
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s;
+            font-size: 14px; transform-origin: center center;
+        }
+        .port-marker-selected .port-marker-inner {
+            background-color: #facc15; border: 2px solid white; color: #000;
+            box-shadow: 0 0 15px rgba(250, 204, 21, 1);
+            transform: scale(1.35); font-size: 16px;
+        }
+
+        /* Loading Screen Overlay */
+        #loading-screen {
+            position: fixed; inset: 0; z-index: 99999;
+            background-color: #000c1a;
+            display: flex; flex-col items-center justify-center;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.5s ease-in-out;
+        }
+        #loading-screen.active { opacity: 1; pointer-events: auto; }
+        
+        @keyframes load-bar {
+            0% { transform: scaleX(0); }
+            50% { transform: scaleX(0.7); }
+            100% { transform: scaleX(1); }
+        }
+        .animate-load-bar { animation: load-bar 2.5s cubic-bezier(0.4, 0, 0.2, 1) forwards; transform-origin: left; }
+
+        /* DEV TOOL EDITOR STYLES */
+        .editor-mode-active #map { cursor: crosshair !important; }
     </style>
 </head>
 <body class="font-sans text-white">
@@ -145,9 +185,65 @@
             <i class="ph-bold ph-x text-2xl"></i>
         </button>
 
-        <!-- AUTOPILOT BUTTON -->
-        <button id="minimap-autopilot-btn" class="absolute bottom-6 left-1/2 -translate-x-1/2 w-[85%] md:w-auto z-[2000] bg-yellow-400 text-black px-6 py-3 rounded-full font-bold shadow-xl hidden justify-center items-center gap-2 hover:bg-yellow-300 transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+        <button id="minimap-autopilot-btn" class="absolute bottom-6 left-1/2 -translate-x-1/2 w-[85%] md:w-auto z-[2000] bg-yellow-400 text-black px-6 py-3 rounded-full font-bold shadow-xl hidden justify-center items-center gap-2 hover:bg-yellow-300 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
         </button>
+    </div>
+
+    <!-- Right Side Controls (Under Minimap) -->
+    <div id="right-controls" class="absolute right-[62px] md:right-[90px] top-[176px] md:top-[226px] flex flex-col gap-3 z-20 transition-opacity duration-300 pointer-events-none">
+        <button id="random-btn" class="pointer-events-auto bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-full shadow-lg transition-transform hover:scale-105 flex items-center justify-center w-12 h-12" title="Random Port">
+            <i class="ph-bold ph-shuffle text-xl"></i>
+        </button>
+        <button id="collision-btn" class="pointer-events-auto bg-slate-700 hover:bg-slate-600 text-green-400 border border-green-400/30 p-3 rounded-full shadow-lg transition-transform hover:scale-105 flex items-center justify-center w-12 h-12" title="Toggle Sonar (V)">
+            <i class="ph-bold ph-radar text-xl"></i>
+        </button>
+        <button id="start-editor-btn" class="pointer-events-auto bg-slate-700 hover:bg-slate-600 text-yellow-400 border border-yellow-400/30 p-3 rounded-full shadow-lg transition-transform hover:scale-105 flex items-center justify-center w-12 h-12" title="Edit Port Locations">
+            <i class="ph-bold ph-gear text-xl"></i>
+        </button>
+    </div>
+
+    <!-- DEV TOOL: PORT EDITOR PANEL -->
+    <div id="port-editor-panel" class="hidden absolute top-[176px] md:top-[226px] right-[120px] md:right-[150px] z-[9999] bg-black/90 backdrop-blur-md p-5 rounded-2xl border border-yellow-400 shadow-2xl flex-col gap-3 w-64 md:w-72 pointer-events-auto">
+        <div class="flex items-center gap-2 text-yellow-400 font-bold text-lg border-b border-white/20 pb-2 mb-1">
+            <i class="ph-fill ph-wrench"></i> DEV TOOLS
+        </div>
+        <div class="text-xs font-mono text-blue-300 tracking-wider" id="editor-status">PORT 1 / 100</div>
+        <div class="text-xl font-bold text-white leading-tight" id="editor-port-name">Port Name</div>
+        <p class="text-xs text-gray-400 mt-1 mb-2 leading-relaxed">Move the boat to the exact dock. <strong class="text-white">Clicking the map</strong> instantly teleports the boat to your cursor.</p>
+        
+        <div class="flex gap-2 mt-2">
+            <button id="editor-next-btn" class="bg-blue-600 hover:bg-blue-500 px-3 py-2.5 rounded-lg font-bold text-sm transition-colors flex-1 flex items-center justify-center gap-1 shadow-lg">
+                <i class="ph-bold ph-check"></i> Save & Next
+            </button>
+            <button id="editor-finish-btn" class="bg-red-600/80 hover:bg-red-500 px-3 py-2.5 rounded-lg font-bold text-sm transition-colors flex items-center justify-center shadow-lg" title="Finish Early">
+                <i class="ph-bold ph-stop"></i> Stop
+            </button>
+        </div>
+    </div>
+
+    <!-- DEV TOOL: OUTPUT MODAL -->
+    <div id="editor-output-modal" class="hidden fixed inset-0 z-[100000] bg-black/90 flex items-center justify-center p-4 pointer-events-auto">
+        <div class="bg-slate-900 p-6 rounded-2xl w-full max-w-3xl border border-white/20 flex flex-col gap-4 shadow-2xl">
+            <h2 class="text-2xl font-bold text-green-400 flex items-center gap-2"><i class="ph-fill ph-check-circle"></i> Ports Updated!</h2>
+            <p class="text-sm text-gray-300">Copy this updated array and paste it back into your prompt to permanently save the changes.</p>
+            <textarea id="editor-textarea" class="w-full h-80 bg-black text-green-300 font-mono text-xs p-4 rounded-xl border border-white/10 focus:outline-none focus:border-green-400 shadow-inner resize-none" readonly></textarea>
+            <div class="flex gap-3 mt-2">
+                <button id="editor-copy-btn" class="bg-green-600 hover:bg-green-500 px-6 py-3 rounded-xl font-bold transition-colors flex-1 flex items-center justify-center gap-2 text-lg">
+                    <i class="ph-bold ph-copy"></i> Copy to Clipboard
+                </button>
+                <button id="editor-close-btn" class="bg-gray-700 hover:bg-gray-600 px-6 py-3 rounded-xl font-bold transition-colors w-32">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Teleport Loading Screen -->
+    <div id="loading-screen" class="flex flex-col items-center justify-center">
+        <i class="ph-fill ph-anchor text-6xl text-blue-400 mb-6 animate-bounce"></i>
+        <h2 id="loading-title" class="text-2xl md:text-3xl font-bold text-white tracking-widest text-center px-4">SAILING TO PORT...</h2>
+        <p id="loading-subtitle" class="text-blue-300 mt-2 text-sm font-mono tracking-wide">CALCULATING MARITIME ROUTE</p>
+        <div class="w-64 h-2 bg-blue-900 rounded-full mt-8 overflow-hidden shadow-inner">
+            <div id="loading-progress" class="h-full bg-blue-400 w-full scale-x-0"></div>
+        </div>
     </div>
 
     <div id="joystick-zone"></div>
@@ -164,98 +260,294 @@
                 <rect x="25" y="80" width="50" height="35" rx="10" fill="#0f172a"/>
                 <path d="M30,85 L70,85 L65,110 L35,110 Z" fill="#38bdf8" opacity="0.8"/>
                 <rect x="40" y="195" width="20" height="15" rx="3" fill="#334155"/>
-                <!-- Engine thrust glow for hyper-speed -->
-                <circle cx="50" cy="210" r="15" fill="#38bdf8" opacity="0" class="fast-travel-glow" filter="blur(5px)"/>
-                <circle cx="50" cy="210" r="8" fill="#ffffff" opacity="0" class="fast-travel-glow" filter="blur(2px)"/>
             </svg>
         </div>
     </div>
 
     <!-- Info Panel -->
     <div class="ui-layer top-4 left-4 flex flex-col gap-3 pointer-events-none">
-        <div class="pointer-events-auto bg-black/60 backdrop-blur-md rounded-2xl p-4 border border-white/10 shadow-xl max-w-[200px] md:max-w-xs transition-colors" id="info-panel">
+        <div class="pointer-events-auto bg-black/60 backdrop-blur-md rounded-2xl p-4 border border-white/10 shadow-xl max-w-[240px] md:max-w-xs transition-colors" id="info-panel">
             <h1 class="text-lg md:text-xl font-bold flex items-center gap-2 mb-1">
-                <i class="ph-fill ph-compass"></i> Explorer
+                <i class="ph-fill ph-anchor"></i> Explorer
             </h1>
             <p id="location-name" class="text-xs md:text-sm text-blue-200 truncate font-semibold">Teleporting...</p>
-            <div class="mt-2 flex items-center gap-4">
-                <div>
-                    <div class="text-2xl font-mono font-bold text-white"><span id="speed-display">0</span> <span class="text-sm text-gray-400 font-sans">kts</span></div>
+            <div class="mt-2 flex flex-col">
+                <div class="w-48"> 
+                    <div class="text-2xl font-mono font-bold text-white tracking-wider truncate" id="speed-display">0 kts</div>
                 </div>
             </div>
-            <div id="waypoint-info" class="mt-2 text-xs font-semibold text-yellow-400 hidden flex items-center gap-1">
-                <i class="ph-bold ph-map-pin"></i> <span id="waypoint-dist">0</span>mi to dest
+            <div id="waypoint-info" class="mt-1 text-xs font-semibold text-yellow-400 hidden flex items-center gap-1">
+                <i class="ph-bold ph-map-pin"></i> <span id="waypoint-dist">0</span><span id="waypoint-label">mi to target</span>
             </div>
         </div>
-
-        <button id="random-btn" class="pointer-events-auto bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-full shadow-lg transition-transform hover:scale-105 flex items-center justify-center w-12 h-12">
-            <i class="ph-bold ph-shuffle text-xl"></i>
-        </button>
     </div>
     
     <!-- Instructions -->
-    <div class="ui-layer bottom-8 left-1/2 -translate-x-1/2 w-full max-w-md text-center pointer-events-none px-4">
-        <div class="bg-black/50 backdrop-blur-md px-6 py-3 rounded-full text-xs md:text-sm font-medium border border-white/10 shadow-lg inline-block">
-            <span class="hidden md:inline">Use <strong class="text-blue-300">W A S D</strong>. Click <strong class="text-yellow-400">Minimap</strong> to expand & Autopilot!</span>
-            <span class="md:hidden">Drag <strong class="text-blue-300"><span class="landscape-text">Left Side</span><span class="portrait-text">Bottom Half</span></strong>. Tap <strong class="text-yellow-400">Minimap</strong>!</span>
+    <div class="ui-layer bottom-8 left-1/2 -translate-x-1/2 w-full max-w-lg text-center pointer-events-none px-4">
+        <div class="bg-black/50 backdrop-blur-md px-6 py-3 rounded-full text-xs md:text-sm font-medium border border-white/10 shadow-lg inline-block shadow-[0_0_15px_rgba(56,189,248,0.3)]">
+            <span class="hidden md:inline">Drop a <strong class="text-blue-400">Pin</strong> to set GPS. Click an <strong class="text-yellow-400">Anchor</strong> to Fast Travel!</span>
+            <span class="md:hidden">Tap <strong class="text-blue-400">Minimap</strong> to drop a pin or select a port!</span>
         </div>
     </div>
+
+    <script>
+        // --- MATH HELPERS ---
+        const lon2tile = (lon, zoom) => Math.floor((lon+180)/360*Math.pow(2,zoom));
+        const lat2tile = (lat, zoom) => Math.floor((1-Math.log(Math.tan(lat*Math.PI/180) + 1/Math.cos(lat*Math.PI/180))/Math.PI)/2 *Math.pow(2,zoom));
+        const lon2tilex = (lon, zoom) => (((lon+180)/360*Math.pow(2,zoom)) % 1) * 256;
+        const lat2tiley = (lat, zoom) => (((1-Math.log(Math.tan(lat*Math.PI/180) + 1/Math.cos(lat*Math.PI/180))/Math.PI)/2 *Math.pow(2,zoom)) % 1) * 256;
+        
+        const getDistance = (lat1, lon1, lat2, lon2) => {
+            const R = 6371e3; const φ1 = lat1 * Math.PI/180; const φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180; const Δλ = (lon2-lon1) * Math.PI/180;
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        };
+    </script>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
     <script>
-        const destinations = [
-            { name: "Bora Bora, French Polynesia", lat: -16.495, lng: -151.736 },
-            { name: "Venice Lagoon, Italy", lat: 45.4312, lng: 12.3385 },
-            { name: "Sydney Harbour, AUS", lat: -33.856, lng: 151.215 },
-            { name: "Malé Atoll, Maldives", lat: 4.175, lng: 73.509 },
-            { name: "Ha Long Bay, Vietnam", lat: 20.85, lng: 107.13 },
-            { name: "Loch Ness, Scotland", lat: 57.22, lng: -4.5 },
-            { name: "The Palm Jumeirah, Dubai", lat: 25.122, lng: 55.132 },
-            { name: "Miami Beach, Florida", lat: 25.790, lng: -80.125 }
+        // --- 100+ GLOBAL PORTS ---
+        const globalPorts = [
+            { name: "Port of Los Angeles", lat: 33.73, lng: -118.26 },
+            { name: "Port of Long Beach", lat: 33.74, lng: -118.21 },
+            { name: "Port of Oakland", lat: 37.7973, lng: -122.32435 },
+            { name: "Port of Vancouver", lat: 49.28829, lng: -123.10485 },
+            { name: "Port of New York", lat: 40.66883, lng: -74.01901 },
+            { name: "Port of Miami", lat: 25.76701, lng: -80.14215 },
+            { name: "Port of Houston", lat: 29.72715, lng: -95.08846 },
+            { name: "Port of New Orleans", lat: 29.91752, lng: -90.03058 },
+            { name: "Port of Savannah", lat: 32.07961, lng: -81.07835 },
+            { name: "Port of Halifax", lat: 44.63, lng: -63.56 },
+            { name: "Port of Honolulu", lat: 21.29799, lng: -157.86957 },
+            { name: "Panama Canal (Colón)", lat: 9.35525, lng: -79.9088 },
+            { name: "Panama Canal (Balboa)", lat: 8.94207, lng: -79.5601 },
+            { name: "Port of Callao", lat: -12.04776, lng: -77.15158 },
+            { name: "Port of Valparaiso", lat: -33.03, lng: -71.62 },
+            { name: "Port of Buenos Aires", lat: -34.5803, lng: -58.36195 },
+            { name: "Port of Santos", lat: -23.98, lng: -46.29 },
+            { name: "Port of Rio de Janeiro", lat: -22.88, lng: -43.16 },
+            { name: "Port of Cartagena", lat: 10.39, lng: -75.54 },
+            { name: "Port of Guayaquil", lat: -2.28, lng: -79.89 },
+            { name: "Port of Rotterdam", lat: 51.95, lng: 4.05 },
+            { name: "Port of Antwerp", lat: 51.27, lng: 4.33 },
+            { name: "Port of Hamburg", lat: 53.54, lng: 9.94 },
+            { name: "Port of Bremerhaven", lat: 53.56, lng: 8.56 },
+            { name: "Port of Felixstowe", lat: 51.95, lng: 1.3 },
+            { name: "Port of Southampton", lat: 50.88, lng: -1.41 },
+            { name: "Port of Liverpool", lat: 53.46, lng: -3.02 },
+            { name: "Port of Le Havre", lat: 49.48, lng: 0.1 },
+            { name: "Port of Marseille", lat: 43.32, lng: 5.34 },
+            { name: "Port of Barcelona", lat: 41.35, lng: 2.17 },
+            { name: "Port of Valencia", lat: 39.44, lng: -0.31 },
+            { name: "Port of Algeciras", lat: 36.13, lng: -5.42 },
+            { name: "Port of Genoa", lat: 44.4, lng: 8.91 },
+            { name: "Port of Naples", lat: 40.83, lng: 14.27 },
+            { name: "Port of Piraeus", lat: 37.94, lng: 23.63 },
+            { name: "Port of Istanbul", lat: 41.01, lng: 28.99 },
+            { name: "Port of Lisbon", lat: 38.69, lng: -9.16 },
+            { name: "Port of Reykjavik", lat: 64.15, lng: -21.93 },
+            { name: "Port of Oslo", lat: 59.9, lng: 10.73 },
+            { name: "Port of Casablanca", lat: 33.61, lng: -7.58 },
+            { name: "Port of Dakar", lat: 14.68, lng: -17.42 },
+            { name: "Port of Abidjan", lat: 5.29, lng: -4.02 },
+            { name: "Port of Lagos", lat: 6.43, lng: 3.39 },
+            { name: "Port of Luanda", lat: -8.79, lng: 13.24 },
+            { name: "Port of Cape Town", lat: -33.9, lng: 18.43 },
+            { name: "Port of Durban", lat: -29.86, lng: 31.03 },
+            { name: "Port of Dar es Salaam", lat: -6.82, lng: 39.3 },
+            { name: "Port of Mombasa", lat: -4.06, lng: 39.65 },
+            { name: "Port of Djibouti", lat: 11.6, lng: 43.13 },
+            { name: "Suez Canal (North)", lat: 31.26, lng: 32.32 },
+            { name: "Suez Canal (South)", lat: 29.93, lng: 32.55 },
+            { name: "Port of Jeddah", lat: 21.46, lng: 39.15 },
+            { name: "Port of Salalah", lat: 16.94, lng: 54 },
+            { name: "Port of Aden", lat: 12.78, lng: 44.97 },
+            { name: "Port of Jebel Ali", lat: 25.01, lng: 55.05 },
+            { name: "Port of Mumbai", lat: 18.94, lng: 72.86 },
+            { name: "Port of Colombo", lat: 6.95, lng: 79.84 },
+            { name: "Port of Chennai", lat: 13.1, lng: 80.3 },
+            { name: "Port of Yangon", lat: 16.76, lng: 96.16 },
+            { name: "Port of Singapore", lat: 1.25, lng: 103.77 },
+            { name: "Port of Jakarta", lat: -6.09, lng: 106.88 },
+            { name: "Port of Manila", lat: 14.58, lng: 120.95 },
+            { name: "Port of Ho Chi Minh", lat: 10.74, lng: 106.75 },
+            { name: "Port of Hong Kong", lat: 22.31, lng: 114.12 },
+            { name: "Port of Shanghai", lat: 31.34, lng: 121.57 },
+            { name: "Port of Busan", lat: 35.1, lng: 129.05 },
+            { name: "Port of Yokohama", lat: 35.45, lng: 139.66 },
+            { name: "Port of Tokyo", lat: 35.61, lng: 139.78 },
+            { name: "Port of Kobe", lat: 34.66, lng: 135.22 },
+            { name: "Port of Sydney", lat: -33.85, lng: 151.22 },
+            { name: "Port of Melbourne", lat: -37.85, lng: 144.91 },
+            { name: "Port of Perth", lat: -32.04, lng: 115.74 },
+            { name: "Port of Auckland", lat: -36.83, lng: 174.78 },
+            { name: "Port of Suva", lat: -18.13, lng: 178.42 },
+            { name: "Port of Papeete", lat: -17.53, lng: -149.57 },
         ];
 
-        // --- MAP SETUP (zoomSnap: 0 prevents white screens during animations) ---
-        const FIXED_ZOOM = 18;
-        const MINIMAP_ZOOM = 13;
-        const FAST_TRAVEL_ZOOM = 8; // Camera floats up to the clouds
-
+        // --- MAP SETUP ---
+        const FIXED_ZOOM = 16; 
+        const MINIMAP_ZOOM = 3; 
         let currentMapZoom = FIXED_ZOOM;
 
         const map = L.map('map', {
             zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
-            touchZoom: false, boxZoom: false, keyboard: false, minZoom: 4, maxZoom: FIXED_ZOOM, zoomSnap: 0
+            touchZoom: false, boxZoom: false, keyboard: false, minZoom: 3, maxZoom: FIXED_ZOOM, zoomSnap: 0
         });
 
         const minimap = L.map('minimap', {
             zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
             touchZoom: false, boxZoom: false, keyboard: false, attributionControl: false,
-            minZoom: 2, maxZoom: 18, zoomSnap: 0
+            minZoom: 1, maxZoom: 18, zoomSnap: 0
         });
 
         const minimapZoomControl = L.control.zoom({ position: 'topright' });
-        const satelliteUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+        const satelliteUrl = 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
         
-        L.tileLayer(satelliteUrl, { maxZoom: FIXED_ZOOM, maxNativeZoom: 12, zIndex: 1 }).addTo(map);
-        L.tileLayer(satelliteUrl, { maxZoom: FIXED_ZOOM, maxNativeZoom: 18, keepBuffer: 2, zIndex: 2 }).addTo(map);
+        L.tileLayer(satelliteUrl, { maxZoom: FIXED_ZOOM, maxNativeZoom: 10, zIndex: 1 }).addTo(map);
+        L.tileLayer(satelliteUrl, { maxZoom: FIXED_ZOOM, maxNativeZoom: 19, keepBuffer: 2, updateWhenIdle: false, zIndex: 2 }).addTo(map);
 
         L.tileLayer(satelliteUrl, { maxZoom: 18, maxNativeZoom: 10, zIndex: 1 }).addTo(minimap);
         L.tileLayer(satelliteUrl, { maxZoom: 18, maxNativeZoom: 14, zIndex: 2 }).addTo(minimap);
 
+        // --- COLLISION OVERLAY ---
+        const collisionUrl = 'https://a.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png';
+        const collisionLayerMap = L.tileLayer(collisionUrl, { maxZoom: FIXED_ZOOM, zIndex: 3, opacity: 0 }).addTo(map);
+        const collisionLayerMini = L.tileLayer(collisionUrl, { maxZoom: 18, zIndex: 3, opacity: 0 }).addTo(minimap);
+        let collisionOverlayActive = false;
+
+        const collisionBtn = document.getElementById('collision-btn');
+        function toggleCollisions() {
+            collisionOverlayActive = !collisionOverlayActive;
+            collisionLayerMap.setOpacity(collisionOverlayActive ? 0.8 : 0);
+            collisionLayerMini.setOpacity(collisionOverlayActive ? 0.8 : 0);
+            
+            if (collisionBtn) {
+                if (collisionOverlayActive) {
+                    collisionBtn.classList.replace('bg-slate-700', 'bg-green-600');
+                    collisionBtn.classList.replace('text-green-400', 'text-white');
+                    collisionBtn.classList.remove('border');
+                } else {
+                    collisionBtn.classList.replace('bg-green-600', 'bg-slate-700');
+                    collisionBtn.classList.replace('text-white', 'text-green-400');
+                    collisionBtn.classList.add('border');
+                }
+            }
+        }
+        if (collisionBtn) collisionBtn.addEventListener('click', toggleCollisions);
+
+        // Render Anchors!
+        let portMarkers = [];
+        globalPorts.forEach((port, index) => {
+            let icon = L.divIcon({ 
+                html: `<div class="port-marker-inner"><i class="ph-bold ph-anchor"></i></div>`,
+                className: 'port-marker-wrapper', 
+                iconSize: [24, 24], 
+                iconAnchor: [12, 12] 
+            });
+            let marker = L.marker([port.lat, port.lng], { icon: icon, zIndexOffset: 500 }).addTo(minimap);
+            marker.portData = port;
+            marker.portIndex = index;
+            portMarkers.push(marker);
+            L.circle([port.lat, port.lng], { radius: 80467, color: '#facc15', weight: 1, fillOpacity: 0.05, interactive: false }).addTo(minimap);
+        });
+
         setTimeout(() => minimap.invalidateSize(), 500);
 
-        const boatMiniIcon = L.divIcon({
-            html: `<div style="background-color: #38bdf8; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 10px rgba(56,189,248,1);"></div>`,
-            className: '', iconSize: [12, 12], iconAnchor: [6, 6]
-        });
-        const boatMiniMarker = L.marker([0,0], { icon: boatMiniIcon, zIndexOffset: 1000 }).addTo(minimap);
+        // --- DEV TOOL: PORT EDITOR ---
+        let isEditingPorts = false;
+        let editIndex = 0;
+        let editedPorts = [];
 
-        function getDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371e3; const φ1 = lat1 * Math.PI/180; const φ2 = lat2 * Math.PI/180;
-            const Δφ = (lat2-lat1) * Math.PI/180; const Δλ = (lon2-lon1) * Math.PI/180;
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        const editorPanel = document.getElementById('port-editor-panel');
+        const editorStatus = document.getElementById('editor-status');
+        const editorPortName = document.getElementById('editor-port-name');
+        const editorNextBtn = document.getElementById('editor-next-btn');
+        const editorFinishBtn = document.getElementById('editor-finish-btn');
+        const editorOutputModal = document.getElementById('editor-output-modal');
+        const editorTextarea = document.getElementById('editor-textarea');
+        const editorCopyBtn = document.getElementById('editor-copy-btn');
+        const editorCloseBtn = document.getElementById('editor-close-btn');
+        const rightControls = document.getElementById('right-controls');
+        const startEditorBtn = document.getElementById('start-editor-btn');
+
+        if (startEditorBtn) {
+            startEditorBtn.addEventListener('click', () => {
+                if(isMinimapExpanded) closeMinimap();
+                isEditingPorts = true;
+                editedPorts = JSON.parse(JSON.stringify(globalPorts)); 
+                editIndex = 0;
+                editorPanel.classList.remove('hidden');
+                editorPanel.classList.add('flex');
+                document.body.classList.add('editor-mode-active');
+                loadEditPort();
+            });
         }
+
+        function loadEditPort() {
+            if (editIndex >= editedPorts.length) { finishEditing(); return; }
+            let p = editedPorts[editIndex];
+            if (editorStatus) editorStatus.innerText = `PORT ${editIndex + 1} / ${editedPorts.length}`;
+            if (editorPortName) editorPortName.innerText = p.name;
+            currentLat = p.lat; currentLng = p.lng; state.speed = 0; state.heading = 0;
+            currentMapZoom = FIXED_ZOOM;
+            map.setView([currentLat, currentLng], currentMapZoom, { animate: false });
+            minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
+            const locName = document.getElementById('location-name');
+            if (locName) locName.textContent = `Editing: ${p.name}`;
+        }
+
+        if (editorNextBtn) {
+            editorNextBtn.addEventListener('click', () => {
+                editedPorts[editIndex].lat = parseFloat(currentLat.toFixed(5));
+                editedPorts[editIndex].lng = parseFloat(currentLng.toFixed(5));
+                editIndex++;
+                loadEditPort();
+            });
+        }
+
+        function finishEditing() {
+            isEditingPorts = false;
+            editorPanel.classList.add('hidden');
+            editorPanel.classList.remove('flex');
+            document.body.classList.remove('editor-mode-active');
+            editorOutputModal.classList.remove('hidden');
+            
+            let outStr = "const globalPorts = [\n";
+            editedPorts.forEach(p => { outStr += `    { name: "${p.name}", lat: ${p.lat}, lng: ${p.lng} },\n`; });
+            outStr += "];";
+            editorTextarea.value = outStr;
+        }
+        if (editorFinishBtn) editorFinishBtn.addEventListener('click', finishEditing);
+
+        if (editorCopyBtn) {
+            editorCopyBtn.addEventListener('click', () => {
+                editorTextarea.select();
+                document.execCommand('copy');
+                editorCopyBtn.innerHTML = `<i class="ph-bold ph-check"></i> Copied!`;
+                editorCopyBtn.classList.replace('bg-green-600', 'bg-yellow-500');
+                setTimeout(() => {
+                    editorCopyBtn.innerHTML = `<i class="ph-bold ph-copy"></i> Copy to Clipboard`;
+                    editorCopyBtn.classList.replace('bg-yellow-500', 'bg-green-600');
+                }, 2000);
+            });
+        }
+
+        if (editorCloseBtn) {
+            editorCloseBtn.addEventListener('click', () => { editorOutputModal.classList.add('hidden'); });
+        }
+
+        map.on('click', (e) => {
+            if(isEditingPorts) {
+                currentLat = e.latlng.lat; currentLng = e.latlng.lng;
+                map.setView([currentLat, currentLng], currentMapZoom, { animate: false });
+                if(boatMiniMarker) boatMiniMarker.setLatLng([currentLat, currentLng]);
+                wakeHistory = []; ctx.clearRect(0, 0, wakeCanvas.width, wakeCanvas.height);
+            }
+        });
+
 
         // --- EXPANDABLE MINIMAP ---
         let isMinimapExpanded = false;
@@ -264,26 +556,34 @@
         const minimapCloseBtn = document.getElementById('minimap-close-btn');
         const autopilotBtn = document.getElementById('minimap-autopilot-btn');
 
-        minimapOverlay.addEventListener('click', (e) => {
-            e.stopPropagation();
-            isMinimapExpanded = true;
-            minimapWrapper.classList.add('expanded');
-            minimapOverlay.style.display = 'none';
-            minimapCloseBtn.style.display = 'flex';
-            
-            minimap.dragging.enable(); minimap.touchZoom.enable(); minimap.scrollWheelZoom.enable(); minimap.doubleClickZoom.enable();
-            minimapZoomControl.addTo(minimap);
+        if (minimapOverlay) {
+            minimapOverlay.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if(isEditingPorts) return; 
+                
+                isMinimapExpanded = true;
+                minimapWrapper.classList.add('expanded');
+                minimapOverlay.style.display = 'none';
+                minimapCloseBtn.style.display = 'flex';
+                
+                if (rightControls) rightControls.classList.add('opacity-0', 'pointer-events-none');
+                
+                minimap.dragging.enable(); minimap.touchZoom.enable(); minimap.scrollWheelZoom.enable(); minimap.doubleClickZoom.enable();
+                minimapZoomControl.addTo(minimap);
 
-            if (waypoint) autopilotBtn.style.display = 'flex';
-            setTimeout(() => minimap.invalidateSize(), 400); 
-        });
+                if (targetPortIndex !== -1) autopilotBtn.style.display = 'flex';
+                setTimeout(() => minimap.invalidateSize(), 400); 
+            });
+        }
 
         function closeMinimap() {
             isMinimapExpanded = false;
             minimapWrapper.classList.remove('expanded');
-            minimapOverlay.style.display = 'flex';
-            minimapCloseBtn.style.display = 'none';
-            autopilotBtn.style.display = 'none';
+            if (minimapOverlay) minimapOverlay.style.display = 'flex';
+            if (minimapCloseBtn) minimapCloseBtn.style.display = 'none';
+            if (autopilotBtn) autopilotBtn.style.display = 'none';
+            
+            if (rightControls) rightControls.classList.remove('opacity-0', 'pointer-events-none');
             
             minimap.dragging.disable(); minimap.touchZoom.disable(); minimap.scrollWheelZoom.disable(); minimap.doubleClickZoom.disable();
             minimapZoomControl.remove();
@@ -292,62 +592,198 @@
             setTimeout(() => minimap.invalidateSize(), 400);
         }
 
-        minimapCloseBtn.addEventListener('click', (e) => { e.stopPropagation(); closeMinimap(); });
+        if (minimapCloseBtn) minimapCloseBtn.addEventListener('click', (e) => { e.stopPropagation(); closeMinimap(); });
 
-        // --- NAVIGATION & AUTOPILOT UI ---
+        // --- ASYNC COLLISION SYSTEM ---
+        const tileCache = {};
+        function getTilePixel(lat, lng, zoom) {
+            const x = lon2tile(lng, zoom); const y = lat2tile(lat, zoom);
+            const tileKey = `${zoom}_${x}_${y}`;
+            if (!tileCache[tileKey]) {
+                tileCache[tileKey] = { loaded: false, data: null, error: false };
+                const img = new Image(); img.crossOrigin = "Anonymous"; 
+                img.onload = () => {
+                    try { 
+                        const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
+                        const ctxMap = canvas.getContext('2d');
+                        if (ctxMap) { ctxMap.drawImage(img, 0, 0); tileCache[tileKey].data = ctxMap.getImageData(0, 0, 256, 256).data; }
+                    } catch(e) { } 
+                    tileCache[tileKey].loaded = true; 
+                };
+                img.onerror = () => { tileCache[tileKey].loaded = true; tileCache[tileKey].error = true; }; 
+                img.src = `https://a.basemaps.cartocdn.com/rastertiles/voyager_nolabels/${zoom}/${x}/${y}.png`;
+                return null; 
+            }
+            if (tileCache[tileKey].loaded) {
+                if (tileCache[tileKey].error || !tileCache[tileKey].data) return "fallback"; 
+                const px = Math.floor(lon2tilex(lng, zoom)); const py = Math.floor(lat2tiley(lat, zoom));
+                const index = (py * 256 + px) * 4;
+                if (index < 0 || index >= tileCache[tileKey].data.length) return true; 
+                const r = tileCache[tileKey].data[index]; const b = tileCache[tileKey].data[index+2]; const a = tileCache[tileKey].data[index+3];
+                if (a === 0) return true; return (b > r + 15);
+            }
+            return null; 
+        }
+
+        function checkIsWater(lat, lng, zoomLvl) {
+            let res = getTilePixel(lat, lng, zoomLvl);
+            if (res === "fallback") return getTilePixel(lat, lng, Math.max(3, zoomLvl - 3));
+            return res;
+        }
+
+        // --- NAVIGATION, MANUAL PINS & FAST TRAVEL ---
         let waypoint = null;
-        let navLineMain = L.polyline([], { color: '#facc15', weight: 4, className: 'nav-route', opacity: 0.8 }).addTo(map);
-        let navLineMini = L.polyline([], { color: '#facc15', weight: 3, className: 'nav-route', opacity: 0.8 }).addTo(minimap);
+        let targetPortIndex = -1;
+        let navLineMain = L.polyline([], { color: '#38bdf8', weight: 4, className: 'nav-route', opacity: 0.9 }).addTo(map);
+        let navLineMini = L.polyline([], { color: '#38bdf8', weight: 3, className: 'nav-route', opacity: 0.9 }).addTo(minimap);
         let waypointMarker = null;
         let waypointMarkerMini = null;
+        
         const waypointInfo = document.getElementById('waypoint-info');
         const waypointDist = document.getElementById('waypoint-dist');
+        const waypointLabel = document.getElementById('waypoint-label');
+        
+        const loadingScreen = document.getElementById('loading-screen');
+        const loadingBar = document.getElementById('loading-progress');
+        const loadingTitle = document.getElementById('loading-title');
 
-        minimap.on('click', (e) => {
-            if (!isMinimapExpanded) return;
+        let boatMiniMarker = null;
 
-            waypoint = e.latlng;
-            if (waypointMarker) { map.removeLayer(waypointMarker); minimap.removeLayer(waypointMarkerMini); }
-            
+        function clearPortSelection() {
+            targetPortIndex = -1;
+            portMarkers.forEach(m => {
+                let el = m.getElement();
+                if (el) {
+                    el.classList.remove('port-marker-selected');
+                }
+            });
+            if (autopilotBtn) autopilotBtn.style.display = 'none';
+        }
+
+        minimap.on('click', async (e) => {
+            if (!isMinimapExpanded || isSpawning || isEditingPorts) return;
+
+            let clickLat = e.latlng.lat;
+            let clickLng = e.latlng.lng;
+
+            if (waypointMarker) { map.removeLayer(waypointMarker); minimap.removeLayer(waypointMarkerMini); waypointMarker = null; }
+            clearPortSelection();
+
+            let closestIdx = -1;
+            let minDist = Infinity;
+            for (let i = 0; i < globalPorts.length; i++) {
+                let dist = getDistance(clickLat, clickLng, globalPorts[i].lat, globalPorts[i].lng);
+                if (dist < minDist) { minDist = dist; closestIdx = i; }
+            }
+
+            let isTargetNearPort = minDist < 500000; 
+
+            if (isTargetNearPort) {
+                targetPortIndex = closestIdx;
+                let p = globalPorts[targetPortIndex];
+                
+                let markerEl = portMarkers[targetPortIndex].getElement();
+                if (markerEl) {
+                    markerEl.classList.add('port-marker-selected');
+                }
+
+                waypoint = { lat: p.lat, lng: p.lng };
+                if (waypointLabel) waypointLabel.innerText = " mi to port";
+
+                let isBoatNearPort = false;
+                for (let i = 0; i < globalPorts.length; i++) {
+                    if (getDistance(currentLat, currentLng, globalPorts[i].lat, globalPorts[i].lng) <= 80500) { 
+                        isBoatNearPort = true;
+                        break;
+                    }
+                }
+
+                if (isBoatNearPort) {
+                    autopilotBtn.innerHTML = `<i class="ph-bold ph-anchor text-xl"></i> <span class="text-sm font-bold tracking-wide">FAST TRAVEL: ${p.name.toUpperCase()}</span>`;
+                    autopilotBtn.classList.remove('bg-red-600', 'text-white');
+                    autopilotBtn.classList.add('bg-yellow-400', 'text-black');
+                    autopilotBtn.disabled = false;
+                    autopilotBtn.style.display = 'flex';
+                } else {
+                    autopilotBtn.innerHTML = `<i class="ph-bold ph-warning text-xl"></i> <span class="text-sm font-bold tracking-wide">DRIVE TO A PORT ZONE TO FAST TRAVEL</span>`;
+                    autopilotBtn.classList.remove('bg-yellow-400', 'text-black');
+                    autopilotBtn.classList.add('bg-red-600', 'text-white', 'animate-shake-ui');
+                    autopilotBtn.disabled = true;
+                    autopilotBtn.style.display = 'flex';
+                    
+                    setTimeout(() => {
+                        if(targetPortIndex === closestIdx && autopilotBtn.disabled) {
+                            autopilotBtn.style.display = 'none';
+                            autopilotBtn.classList.remove('bg-red-600', 'text-white', 'animate-shake-ui');
+                            autopilotBtn.classList.add('bg-yellow-400', 'text-black');
+                        }
+                    }, 3000);
+                }
+
+            } else {
+                waypoint = { lat: clickLat, lng: clickLng };
+                if (waypointLabel) waypointLabel.innerText = " mi to target";
+                if (autopilotBtn) autopilotBtn.style.display = 'none';
+            }
+
             const pinIcon = L.divIcon({
                 html: `<div style="background-color: #facc15; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.8);"></div>`,
                 className: '', iconSize: [14, 14], iconAnchor: [7, 7]
             });
+            waypointMarker = L.marker([waypoint.lat, waypoint.lng], { icon: pinIcon }).addTo(map);
+            waypointMarkerMini = L.marker([waypoint.lat, waypoint.lng], { icon: pinIcon }).addTo(minimap);
+
+            let distMiles = getDistance(currentLat, currentLng, waypoint.lat, waypoint.lng) / 1609.34;
+            navLineMini.setLatLngs([[currentLat, currentLng], [waypoint.lat, waypoint.lng]]);
+            navLineMain.setLatLngs([[currentLat, currentLng], [waypoint.lat, waypoint.lng]]);
             
-            waypointMarker = L.marker(waypoint, { icon: pinIcon }).addTo(map);
-            waypointMarkerMini = L.marker(waypoint, { icon: pinIcon }).addTo(minimap);
-            waypointInfo.classList.remove('hidden');
-            
-            let distMeters = getDistance(currentLat, currentLng, waypoint.lat, waypoint.lng);
-            let distMiles = distMeters / 1609.34;
-            
-            // 100 Mile Requirement!
-            if (distMiles < 100) {
-                autopilotBtn.innerHTML = `<i class="ph-bold ph-warning text-xl"></i> <span class="text-sm">TOO CLOSE (${Math.round(distMiles)}/100 MI)</span>`;
-                autopilotBtn.disabled = true;
-            } else {
-                autopilotBtn.innerHTML = `<i class="ph-bold ph-lightning text-xl"></i> <span class="text-sm">ENGAGE HYPER-DRIVE</span>`;
-                autopilotBtn.disabled = false;
-            }
-            autopilotBtn.style.display = 'flex';
+            if (waypointInfo) waypointInfo.classList.remove('hidden');
+            if (waypointDist) waypointDist.innerText = distMiles > 10 ? Math.round(distMiles) : distMiles.toFixed(1);
         });
 
-        // --- FAST TRAVEL (CINEMATIC HYPER-DRIVE WITH LIVE SCANNING) ---
-        let isFastTraveling = false;
+        // --- CINEMATIC LOADING SCREEN TELEPORT ---
+        if (autopilotBtn) {
+            autopilotBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (targetPortIndex === -1 || isSpawning || isEditingPorts) return;
+                
+                let p = globalPorts[targetPortIndex];
+                
+                closeMinimap();
+                if (loadingTitle) loadingTitle.innerText = `SAILING TO ${p.name.toUpperCase()}...`;
+                if (loadingScreen) loadingScreen.classList.add('active');
+                
+                if (loadingBar) {
+                    loadingBar.classList.remove('animate-load-bar');
+                    void loadingBar.offsetWidth; 
+                    loadingBar.classList.add('animate-load-bar');
+                }
 
-        autopilotBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!waypoint || isSpawning || isFastTraveling || autopilotBtn.disabled) return;
-            
-            isFastTraveling = true;
-            closeMinimap();
-            wakeHistory = []; 
-            
-            // Activate glow and scale up CSS
-            document.getElementById('boat-container').classList.add('fast-traveling');
-            const glows = document.querySelectorAll('.fast-travel-glow');
-            glows.forEach(g => g.setAttribute('opacity', '1'));
-        });
+                setTimeout(() => {
+                    currentLat = p.lat;
+                    currentLng = p.lng;
+                    state.speed = 0;
+                    state.heading = Math.random() * 360;
+                    
+                    wakeHistory = [];
+                    
+                    clearPortSelection();
+                    if (waypointMarker) { map.removeLayer(waypointMarker); minimap.removeLayer(waypointMarkerMini); waypointMarker = null; }
+                    waypoint = null;
+                    if (waypointInfo) waypointInfo.classList.add('hidden');
+                    navLineMain.setLatLngs([]); navLineMini.setLatLngs([]);
+
+                    map.setView([currentLat, currentLng], FIXED_ZOOM, { animate: false });
+                    minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
+                    if(boatMiniMarker) boatMiniMarker.setLatLng([currentLat, currentLng]);
+                    
+                    const locName = document.getElementById('location-name');
+                    if (locName) locName.textContent = p.name;
+                    
+                    if (loadingScreen) loadingScreen.classList.remove('active');
+                }, 2500);
+            });
+        }
 
         // --- WAKE CANVAS ---
         const wakeCanvas = document.getElementById('wake-canvas');
@@ -358,7 +794,6 @@
         window.addEventListener('resize', resizeCanvas); resizeCanvas();
 
         function recordWakePosition(headingRad) {
-            if (isFastTraveling) return; 
             const cx = window.innerWidth / 2; const cy = window.innerHeight / 2;
             const sternX = cx - Math.sin(headingRad) * 35; const sternY = cy + Math.cos(headingRad) * 35;
             const bowLeftX = cx - Math.sin(headingRad - 0.5) * 20; const bowLeftY = cy + Math.cos(headingRad - 0.5) * 20;
@@ -370,63 +805,16 @@
                 bowRight: map.containerPointToLatLng([bowRightX, bowRightY]),
                 life: 1.0
             });
-            if (wakeHistory.length > 50) wakeHistory.pop();
+            if (wakeHistory.length > 25) wakeHistory.pop();
         }
 
-        // --- BOAT STATE & COLLISION SYSTEM (WITH FAILSAFE) ---
+        // --- BOAT STATE ---
         let currentLat = 0; let currentLng = 0;
         let isSpawning = false;
+        let smoothedSpeedDisplay = 0; 
 
-        let state = { speed: 0, heading: 0, maxSpeed: 0.000030, acceleration: 0.0000006, friction: 0.985, turnSpeed: 2.2 };
+        let state = { speed: 0, heading: 0, maxSpeed: 0.000030, acceleration: 0.0000006, friction: 0.985, turnSpeed: 3.0 }; 
         const input = { up: false, down: false, left: false, right: false };
-
-        const tileCache = {};
-        const COLLISION_ZOOM = 15; 
-        function lon2tile(lon, zoom) { return Math.floor((lon+180)/360*Math.pow(2,zoom)); }
-        function lat2tile(lat, zoom) { return Math.floor((1-Math.log(Math.tan(lat*Math.PI/180) + 1/Math.cos(lat*Math.PI/180))/Math.PI)/2 *Math.pow(2,zoom)); }
-        function lon2tilex(lon, zoom) { return (((lon+180)/360*Math.pow(2,zoom)) % 1) * 256; }
-        function lat2tiley(lat, zoom) { return (((1-Math.log(Math.tan(lat*Math.PI/180) + 1/Math.cos(lat*Math.PI/180))/Math.PI)/2 *Math.pow(2,zoom)) % 1) * 256; }
-
-        function checkIsWater(lat, lng) {
-            const x = lon2tile(lng, COLLISION_ZOOM); const y = lat2tile(lat, COLLISION_ZOOM);
-            const tileKey = `${COLLISION_ZOOM}_${x}_${y}`;
-            
-            if (!tileCache[tileKey]) {
-                tileCache[tileKey] = { loaded: false, data: null };
-                const img = new Image(); img.crossOrigin = "Anonymous"; 
-                img.onload = () => {
-                    try { 
-                        const canvas = document.createElement('canvas');
-                        canvas.width = 256; canvas.height = 256;
-                        const ctxMap = canvas.getContext('2d');
-                        if (ctxMap) {
-                            ctxMap.drawImage(img, 0, 0);
-                            tileCache[tileKey].data = ctxMap.getImageData(0, 0, 256, 256).data; 
-                        }
-                    } catch(e) { } 
-                    tileCache[tileKey].loaded = true; // ABSOLUTELY GUARANTEES WE NEVER FREEZE
-                };
-                img.onerror = () => { tileCache[tileKey].loaded = true; }; 
-                img.src = `https://a.basemaps.cartocdn.com/rastertiles/voyager_nolabels/${COLLISION_ZOOM}/${x}/${y}.png`;
-                return null; 
-            }
-
-            if (tileCache[tileKey].loaded) {
-                // FAILSAFE: If privacy settings blocked pixel reading, assume it's water so the game doesn't crash!
-                if (!tileCache[tileKey].data) return true; 
-
-                const px = Math.floor(lon2tilex(lng, COLLISION_ZOOM));
-                const py = Math.floor(lat2tiley(lat, COLLISION_ZOOM));
-                const index = (py * 256 + px) * 4;
-                
-                if (index < 0 || index >= tileCache[tileKey].data.length) return true; 
-
-                const r = tileCache[tileKey].data[index]; const b = tileCache[tileKey].data[index+2]; const a = tileCache[tileKey].data[index+3];
-                if (a === 0) return true; 
-                return (b > r + 15);
-            }
-            return null; 
-        }
 
         // --- JOYSTICK INPUT ---
         let joyActive = false; let joyOriginX = 0; let joyOriginY = 0; let joyX = 0; let joyY = 0; 
@@ -436,10 +824,10 @@
 
         function getClientXY(e) { return (e.touches && e.touches.length > 0) ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY }; }
         function startJoystick(e) {
-            if (isSpawning || isMinimapExpanded || isFastTraveling) return; 
+            if (isSpawning || isMinimapExpanded) return; 
             e.preventDefault(); joyActive = true;
             const pos = getClientXY(e); joyOriginX = pos.x; joyOriginY = pos.y;
-            joyBase.style.display = 'block'; joyBase.style.left = joyOriginX + 'px'; joyBase.style.top = joyOriginY + 'px';
+            if(joyBase) { joyBase.style.display = 'block'; joyBase.style.left = joyOriginX + 'px'; joyBase.style.top = joyOriginY + 'px'; }
             updateJoystick(e);
         }
         function updateJoystick(e) {
@@ -448,16 +836,21 @@
             const maxRadius = 70; const clampedDist = Math.min(Math.sqrt(deltaX*deltaX + deltaY*deltaY), maxRadius);
             const angle = Math.atan2(deltaY, deltaX);
             const knobX = Math.cos(angle) * clampedDist; const knobY = Math.sin(angle) * clampedDist;
-            joyKnob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+            if(joyKnob) joyKnob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
             joyX = knobX / maxRadius; joyY = knobY / maxRadius; 
         }
-        function stopJoystick() { joyActive = false; joyBase.style.display = 'none'; joyKnob.style.transform = `translate(-50%, -50%)`; joyX = 0; joyY = 0; }
+        function stopJoystick() { joyActive = false; if(joyBase) joyBase.style.display = 'none'; if(joyKnob) joyKnob.style.transform = `translate(-50%, -50%)`; joyX = 0; joyY = 0; }
 
-        joyZone.addEventListener('mousedown', startJoystick); joyZone.addEventListener('touchstart', startJoystick, { passive: false });
+        if (joyZone) {
+            joyZone.addEventListener('mousedown', startJoystick); 
+            joyZone.addEventListener('touchstart', startJoystick, { passive: false });
+        }
         window.addEventListener('mousemove', updateJoystick); window.addEventListener('touchmove', updateJoystick, { passive: false });
         window.addEventListener('mouseup', stopJoystick); window.addEventListener('touchend', stopJoystick);
+        
         window.addEventListener('keydown', (e) => {
-            if (isMinimapExpanded || isFastTraveling) return;
+            if (e.key === 'v' || e.key === 'V') { if (typeof toggleCollisions === 'function') toggleCollisions(); }
+            if (isMinimapExpanded) return;
             if (e.key === 'w' || e.key === 'ArrowUp') input.up = true;
             if (e.key === 's' || e.key === 'ArrowDown') input.down = true;
             if (e.key === 'a' || e.key === 'ArrowLeft') input.left = true;
@@ -470,55 +863,63 @@
             if (e.key === 'd' || e.key === 'ArrowRight') input.right = false;
         });
 
-        // --- SPAWN LOGIC ---
+        // --- INSTANT FREEZE-PROOF PORT SPAWNING ---
         const boatContainer = document.getElementById('boat-container');
-        const locName = document.getElementById('location-name');
         const infoPanel = document.getElementById('info-panel');
         const boatEl = document.getElementById('boat');
 
-        async function teleportToRandom() {
-            if (isSpawning || isFastTraveling) return; isSpawning = true;
+        function teleportToRandom() {
             if (isMinimapExpanded) closeMinimap(); 
+            if (isEditingPorts) return;
             
-            wakeHistory = []; waypoint = null; waypointInfo.classList.add('hidden');
-            navLineMain.setLatLngs([]); navLineMini.setLatLngs([]);
+            wakeHistory = []; 
+            clearPortSelection();
             if (waypointMarker) { map.removeLayer(waypointMarker); minimap.removeLayer(waypointMarkerMini); waypointMarker = null; }
+            waypoint = null;
+            if (waypointInfo) waypointInfo.classList.add('hidden');
+            navLineMain.setLatLngs([]); navLineMini.setLatLngs([]);
 
-            boatContainer.style.opacity = '0'; infoPanel.classList.add('bg-blue-900/60');
-            locName.textContent = "Scanning for water..."; locName.classList.add('animate-pulse', 'text-blue-300');
+            if (boatContainer) boatContainer.style.opacity = '0'; 
+            if (infoPanel) infoPanel.classList.add('bg-blue-900/60');
             
-            const dest = destinations[Math.floor(Math.random() * destinations.length)];
-            let searchRadius = 0, searchAngle = 0, testLat = dest.lat, testLng = dest.lng;
+            const locName = document.getElementById('location-name');
+            if (locName) {
+                locName.textContent = "Docking at Port..."; 
+                locName.classList.add('animate-pulse', 'text-blue-300');
+            }
             
-            map.setView([testLat, testLng], FIXED_ZOOM, { animate: false });
+            const dest = globalPorts[Math.floor(Math.random() * globalPorts.length)];
             
-            while (isSpawning) {
-                let waterCheck = checkIsWater(testLat, testLng);
-                if (waterCheck === null) { await new Promise(r => setTimeout(r, 50)); continue; }
-                
-                if (waterCheck === true) {
-                    currentLat = testLat; currentLng = testLng; state.speed = 0; state.heading = Math.random() * 360;
-                    joyX = 0; joyY = 0; stopJoystick(); input.up = false; input.down = false; input.left = false; input.right = false;
-                    
-                    currentMapZoom = FIXED_ZOOM;
-                    map.setView([currentLat, currentLng], currentMapZoom, { animate: false });
-                    minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
-                    
-                    locName.textContent = dest.name; locName.classList.remove('animate-pulse', 'text-blue-300');
-                    infoPanel.classList.remove('bg-blue-900/60'); boatContainer.style.opacity = '1'; isSpawning = false; break;
-                }
-                searchAngle += Math.PI / 4; 
-                if (searchAngle >= Math.PI * 2) { searchAngle -= Math.PI * 2; searchRadius += 0.0003; }
-                if (searchRadius > 0.05) { 
-                    currentLat = dest.lat; currentLng = dest.lng; isSpawning = false; boatContainer.style.opacity = '1';
-                    locName.textContent = dest.name + " (Dry Drop)"; break;
-                }
-                await new Promise(r => setTimeout(r, 10));
+            currentLat = dest.lat; currentLng = dest.lng; state.speed = 0; state.heading = Math.random() * 360;
+            joyX = 0; joyY = 0; stopJoystick(); 
+            input.up = false; input.down = false; input.left = false; input.right = false;
+            
+            currentMapZoom = FIXED_ZOOM;
+            map.setView([currentLat, currentLng], currentMapZoom, { animate: false });
+            minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
+            
+            if (locName) {
+                locName.textContent = dest.name; 
+                locName.classList.remove('animate-pulse', 'text-blue-300');
+            }
+            if (infoPanel) infoPanel.classList.remove('bg-blue-900/60');
+            if (boatContainer) boatContainer.style.opacity = '1';
+
+            if (!boatMiniMarker) {
+                const boatMiniIcon = L.divIcon({
+                    html: `<div style="background-color: #38bdf8; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 10px rgba(56,189,248,1);"></div>`,
+                    className: '', iconSize: [14, 14], iconAnchor: [7, 7]
+                });
+                boatMiniMarker = L.marker([0,0], { icon: boatMiniIcon, zIndexOffset: 1000 }).addTo(minimap);
+            } else {
+                boatMiniMarker.setLatLng([currentLat, currentLng]);
             }
         }
-        document.getElementById('random-btn').addEventListener('click', teleportToRandom);
+        
+        const randomBtn = document.getElementById('random-btn');
+        if (randomBtn) randomBtn.addEventListener('click', teleportToRandom);
 
-        // --- MAIN GAME LOOP ---
+        // --- MAIN GAME LOOP (OPTIMIZED) ---
         const speedDisplay = document.getElementById('speed-display');
         let lastCrashTime = 0;
         let frameCounter = 0;
@@ -527,85 +928,37 @@
             requestAnimationFrame(update);
             frameCounter++;
             
-            if (isSpawning) { ctx.clearRect(0, 0, wakeCanvas.width, wakeCanvas.height); return; }
+            if (isSpawning) return;
 
-            // === CINEMATIC LIVE HYPER-DRIVE ===
-            if (isFastTraveling) {
-                // 1. Zoom Camera Out smoothly
-                if (currentMapZoom > FAST_TRAVEL_ZOOM) {
-                    currentMapZoom -= 0.1;
-                    if (currentMapZoom < FAST_TRAVEL_ZOOM) currentMapZoom = FAST_TRAVEL_ZOOM;
-                }
-
-                // 2. Steer towards target
-                let dx = waypoint.lng - currentLng;
-                let dy = waypoint.lat - currentLat;
-                let distToTarget = Math.sqrt(dx*dx + dy*dy);
-                
-                // If we reach the target, stop!
-                if (distToTarget < 0.05) {
-                    endFastTravel();
-                    return;
-                }
-
-                state.heading = Math.atan2(dx, dy) * (180 / Math.PI);
-
-                // 3. Accelerate to Hyper-Speed (Slow down if getting close)
-                let targetHyperSpeed = distToTarget < 0.2 ? 0.001 : 0.008; 
-                
-                if (state.speed < targetHyperSpeed) state.speed += 0.0002;
-                if (state.speed > targetHyperSpeed) state.speed -= 0.0005;
-
-                let headingRad = state.heading * (Math.PI / 180);
-                let latAdjustment = Math.max(0.1, Math.cos(currentLat * (Math.PI / 180)));
-                let nextLat = currentLat + state.speed * Math.cos(headingRad);
-                let nextLng = currentLng + (state.speed * Math.sin(headingRad)) / latAdjustment;
-
-                // 4. LIVE SCANNING! Check if the path ahead is loaded and safe
-                let waterCheck = checkIsWater(nextLat, nextLng);
-
-                if (waterCheck === null) {
-                    // TILE NOT LOADED YET. 
-                    // Pause the boat's physical movement this frame to let the browser fetch it.
-                    // This creates a cool "Scanning" hitch in the animation if you outrun your internet speed!
-                    speedDisplay.innerText = "SCANNING...";
-                    ctx.clearRect(0, 0, wakeCanvas.width, wakeCanvas.height);
-                } else if (waterCheck === false) {
-                    // HIT LAND DURING FLIGHT. Stop instantly.
-                    endFastTravel(true);
-                } else {
-                    // CLEAR. Blast forward!
-                    currentLat = nextLat; currentLng = nextLng;
-                    
-                    // Display cool Mach speeds
-                    speedDisplay.innerText = "MACH " + Math.round((state.speed / 0.008) * 25);
-                    
-                    map.setView([currentLat, currentLng], currentMapZoom, { animate: false });
-                    boatMiniMarker.setLatLng([currentLat, currentLng]);
-                    if (frameCounter % 5 === 0) minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
-                    
-                    boatEl.style.setProperty('--boat-heading', `${state.heading}deg`);
-                    boatEl.style.transform = `rotate(${state.heading}deg)`;
-                    ctx.clearRect(0, 0, wakeCanvas.width, wakeCanvas.height);
-                }
-                return;
-            }
-
-            // --- RECOVERY ZOOM IN (If coming out of fast travel) ---
-            if (currentMapZoom < FIXED_ZOOM) {
-                currentMapZoom += 0.2;
-                if (currentMapZoom > FIXED_ZOOM) currentMapZoom = FIXED_ZOOM;
-            }
-
-            // === NORMAL PHYSICS LOGIC ===
-            let throttle = 0; let steering = 0;
+            // === PERFECT SYNC JOYSTICK & KEYBOARD PHYSICS ===
+            let throttle = 0; 
+            let steering = 0; 
+            
             if (joyActive && !isMinimapExpanded) {
                 let distance = Math.min(1, Math.sqrt(joyX*joyX + joyY*joyY));
-                if (joyY > 0.3) { throttle = distance; } else { throttle = -distance; } 
-                steering = joyX; if (Math.abs(steering) < 0.15) steering = 0; 
+                if (distance > 0.05) {
+                    let joyAngle = Math.atan2(joyY, joyX);
+                    let targetHeading = (joyAngle * 180 / Math.PI) + 90;
+                    
+                    let currentH = state.heading % 360;
+                    if (currentH < 0) currentH += 360;
+                    if (targetHeading < 0) targetHeading += 360;
+                    
+                    let diff = targetHeading - currentH;
+                    diff = (diff + 540) % 360 - 180; 
+                    
+                    state.heading += diff * 0.15; 
+                    throttle = -distance; 
+                }
             } else if (!isMinimapExpanded) {
                 if (input.up) throttle = -1; if (input.down) throttle = 1;
                 if (input.left) steering = -1; if (input.right) steering = 1;
+                
+                let turnEffectiveness = Math.min(1, Math.abs(state.speed / 0.000005));
+                if (Math.abs(state.speed) > 0.000001) {
+                    let turnDir = state.speed > 0 ? 1 : -1; 
+                    state.heading += (steering * state.turnSpeed * turnEffectiveness) * turnDir;
+                }
             }
 
             if (throttle < 0) state.speed += state.acceleration * Math.abs(throttle); 
@@ -614,112 +967,105 @@
             if (state.speed > state.maxSpeed) state.speed = state.maxSpeed;
             if (state.speed < -state.maxSpeed/2) state.speed = -state.maxSpeed/2;
 
-            let turnEffectiveness = Math.min(1, Math.abs(state.speed / 0.00001));
-            if (Math.abs(state.speed) > 0.000001) {
-                let turnDir = state.speed > 0 ? 1 : -1; 
-                state.heading += (steering * state.turnSpeed * turnEffectiveness) * turnDir;
-            }
-
             let headingRad = state.heading * (Math.PI / 180);
             let latAdjustment = Math.max(0.1, Math.cos(currentLat * (Math.PI / 180)));
             let nextLat = currentLat + state.speed * Math.cos(headingRad);
             let nextLng = currentLng + (state.speed * Math.sin(headingRad)) / latAdjustment;
 
-            let waterCheck = checkIsWater(nextLat, nextLng);
-            if (waterCheck === true || waterCheck === null) {
-                currentLat = nextLat; currentLng = nextLng;
-            } else {
-                state.speed *= -0.3; 
-                const now = Date.now();
-                if (now - lastCrashTime > 500) {
-                    lastCrashTime = now;
-                    boatEl.classList.add('crash-shake', 'crash-active');
-                    setTimeout(() => boatEl.classList.remove('crash-shake', 'crash-active'), 300);
+            if (typeof getTilePixel === 'function' && !isEditingPorts) {
+                let waterCheck = getTilePixel(nextLat, nextLng, 15);
+                if (waterCheck === "fallback") waterCheck = getTilePixel(nextLat, nextLng, 11);
+                
+                if (waterCheck === true || waterCheck === "fallback" || waterCheck === null) {
+                    currentLat = nextLat; currentLng = nextLng;
+                } else {
+                    let currentWaterCheck = getTilePixel(currentLat, currentLng, 15);
+                    if (currentWaterCheck === "fallback") currentWaterCheck = getTilePixel(currentLat, currentLng, 11);
+                    
+                    if (currentWaterCheck === false) {
+                        currentLat = nextLat; currentLng = nextLng; 
+                    } else {
+                        state.speed *= -0.3; 
+                        const now = Date.now();
+                        if (now - lastCrashTime > 500) {
+                            lastCrashTime = now;
+                            if(boatEl) boatEl.classList.add('crash-shake', 'crash-active');
+                            setTimeout(() => { if(boatEl) boatEl.classList.remove('crash-shake', 'crash-active') }, 300);
+                        }
+                    }
                 }
+            } else {
+                currentLat = nextLat; currentLng = nextLng;
             }
 
             map.setView([currentLat, currentLng], currentMapZoom, { animate: false });
-            boatMiniMarker.setLatLng([currentLat, currentLng]);
             
-            if (!isMinimapExpanded && frameCounter % 5 === 0) {
-                minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
+            if (boatMiniMarker && frameCounter % 5 === 0) {
+                boatMiniMarker.setLatLng([currentLat, currentLng]);
             }
             
-            boatEl.style.setProperty('--boat-heading', `${state.heading}deg`);
-            boatEl.style.transform = `rotate(${state.heading}deg)`;
-
             if (waypoint) {
-                let dist = getDistance(currentLat, currentLng, waypoint.lat, waypoint.lng);
-                let distMiles = dist / 1609.34;
-                if (dist < 10) { 
-                    waypoint = null; waypointInfo.classList.add('hidden');
+                let distMiles = getDistance(currentLat, currentLng, waypoint.lat, waypoint.lng) / 1609.34;
+                if (distMiles < 0.1) {
+                    waypoint = null; if(waypointInfo) waypointInfo.classList.add('hidden');
                     navLineMain.setLatLngs([]); navLineMini.setLatLngs([]);
                     if (waypointMarker) { map.removeLayer(waypointMarker); minimap.removeLayer(waypointMarkerMini); waypointMarker = null; }
-                } else {
-                    navLineMain.setLatLngs([[currentLat, currentLng], waypoint]);
-                    if (isMinimapExpanded || frameCounter % 5 === 0) {
-                        navLineMini.setLatLngs([[currentLat, currentLng], waypoint]);
+                    clearPortSelection();
+                } else if (frameCounter % 4 === 0) {
+                    navLineMain.setLatLngs([[currentLat, currentLng], [waypoint.lat, waypoint.lng]]);
+                    if (isMinimapExpanded || frameCounter % 16 === 0) {
+                        navLineMini.setLatLngs([[currentLat, currentLng], [waypoint.lat, waypoint.lng]]);
                     }
-                    waypointDist.innerText = distMiles > 10 ? Math.round(distMiles) : distMiles.toFixed(1);
+                    if(waypointDist) waypointDist.innerText = distMiles > 10 ? Math.round(distMiles) : distMiles.toFixed(1);
                 }
             }
 
-            // --- DRAW VECTOR WAKE ---
+            if (!isMinimapExpanded && frameCounter % 15 === 0) {
+                minimap.setView([currentLat, currentLng], MINIMAP_ZOOM, { animate: false });
+            }
+            
+            if(boatEl) {
+                boatEl.style.setProperty('--boat-heading', `${state.heading}deg`);
+                boatEl.style.transform = `rotate(${state.heading}deg)`;
+            }
+
+            let targetDisplaySpeed = Math.abs(state.speed) * 1250000;
+            smoothedSpeedDisplay += (targetDisplaySpeed - smoothedSpeedDisplay) * 0.1;
+            if (frameCounter % 5 === 0 && speedDisplay) {
+                speedDisplay.innerText = Math.round(smoothedSpeedDisplay) + " kts"; 
+            }
+
             ctx.clearRect(0, 0, wakeCanvas.width, wakeCanvas.height);
             
             if (Math.abs(state.speed / state.maxSpeed) > 0.1 && state.speed > 0) {
-                recordWakePosition(headingRad);
+                if (frameCounter % 2 === 0) recordWakePosition(headingRad);
             }
 
             if (wakeHistory.length > 1) {
                 ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
-                for (let i = 0; i < wakeHistory.length - 1; i++) {
-                    let curr = wakeHistory[i];
-                    let next = wakeHistory[i+1];
-                    curr.life -= 0.02; 
+                let projected = wakeHistory.map(w => ({
+                    bl: map.latLngToContainerPoint(w.bowLeft),
+                    br: map.latLngToContainerPoint(w.bowRight),
+                    st: map.latLngToContainerPoint(w.stern)
+                }));
 
+                for (let i = 0; i < wakeHistory.length - 1; i++) {
+                    let curr = wakeHistory[i]; 
+                    curr.life -= 0.04; 
                     if (curr.life <= 0) continue;
 
-                    let sc1_bl = map.latLngToContainerPoint(curr.bowLeft); let sc2_bl = map.latLngToContainerPoint(next.bowLeft);
-                    let sc1_br = map.latLngToContainerPoint(curr.bowRight); let sc2_br = map.latLngToContainerPoint(next.bowRight);
-                    let sc1_st = map.latLngToContainerPoint(curr.stern); let sc2_st = map.latLngToContainerPoint(next.stern);
+                    let sc1 = projected[i]; let sc2 = projected[i+1];
 
                     ctx.lineWidth = 2 + (1 - curr.life) * 6; 
                     ctx.strokeStyle = `rgba(255, 255, 255, ${curr.life * 0.4})`;
-                    
-                    ctx.beginPath(); ctx.moveTo(sc1_bl.x, sc1_bl.y); ctx.lineTo(sc2_bl.x, sc2_bl.y); ctx.stroke();
-                    ctx.beginPath(); ctx.moveTo(sc1_br.x, sc1_br.y); ctx.lineTo(sc2_br.x, sc2_br.y); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(sc1.bl.x, sc1.bl.y); ctx.lineTo(sc2.bl.x, sc2.bl.y); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(sc1.br.x, sc1.br.y); ctx.lineTo(sc2.br.x, sc2.br.y); ctx.stroke();
 
                     ctx.lineWidth = 4 + (1 - curr.life) * 10;
                     ctx.strokeStyle = `rgba(200, 240, 255, ${curr.life * 0.6})`;
-                    ctx.beginPath(); ctx.moveTo(sc1_st.x, sc1_st.y); ctx.lineTo(sc2_st.x, sc2_st.y); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(sc1.st.x, sc1.st.y); ctx.lineTo(sc2.st.x, sc2.st.y); ctx.stroke();
                 }
-            }
-
-            speedDisplay.innerText = Math.round(Math.abs(state.speed) * 1250000); 
-        }
-
-        // Helper to cleanly exit Hyper-Drive
-        function endFastTravel(crashed = false) {
-            isFastTraveling = false;
-            document.getElementById('boat-container').classList.remove('fast-traveling');
-            const glows = document.querySelectorAll('.fast-travel-glow');
-            glows.forEach(g => g.setAttribute('opacity', '0'));
-            
-            if (crashed) {
-                state.speed = -0.00001; // Tiny bounce back
-                const now = Date.now();
-                if (now - lastCrashTime > 500) {
-                    lastCrashTime = now;
-                    boatEl.classList.add('crash-shake', 'crash-active');
-                    setTimeout(() => boatEl.classList.remove('crash-shake', 'crash-active'), 300);
-                }
-            } else {
-                state.speed = 0;
-                waypoint = null; waypointInfo.classList.add('hidden');
-                navLineMain.setLatLngs([]); navLineMini.setLatLngs([]);
-                if (waypointMarker) { map.removeLayer(waypointMarker); minimap.removeLayer(waypointMarkerMini); waypointMarker = null; }
             }
         }
 
@@ -728,6 +1074,7 @@
     </script>
 </body>
 </html>
+
 
 
 ```
